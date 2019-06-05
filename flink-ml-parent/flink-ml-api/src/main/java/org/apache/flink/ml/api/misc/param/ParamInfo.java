@@ -19,11 +19,24 @@
 package org.apache.flink.ml.api.misc.param;
 
 import org.apache.flink.annotation.PublicEvolving;
+import org.apache.flink.util.Preconditions;
 
 /**
  * Definition of a parameter, including name, type, default value, validator and so on.
  *
  * <p>This class is provided to unify the interaction with parameters.
+ *
+ * <p>when isOptional is true, contain(ParamInfo) is true, it will return the value found in Params,
+ * whether the value is null or not.
+ *
+ * <p>when isOptional is true, contain(ParamInfo) is false:
+ *
+ * <p>- hasDefaultValue is true, it will return defaultValue.
+ *
+ * <p>- hasDefaultValue is false, it will throw exception.
+ *      developer should use contain to check that Params has ParamInfo or not.
+ *
+ * <p>See also {@link Params#get(ParamInfo) }.
  *
  * @param <V> the type of the param value
  */
@@ -67,6 +80,7 @@ public class ParamInfo<V> {
 	 * @return the aliases of the parameter
 	 */
 	public String[] getAlias() {
+		Preconditions.checkNotNull(alias);
 		return alias;
 	}
 
