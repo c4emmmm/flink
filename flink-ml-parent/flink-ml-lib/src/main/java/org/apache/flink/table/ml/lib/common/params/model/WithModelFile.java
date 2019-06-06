@@ -16,31 +16,27 @@
  * limitations under the License.
  */
 
-package org.apache.flink.ml.api.core;
+package org.apache.flink.table.ml.lib.common.params.model;
 
+import org.apache.flink.ml.api.misc.param.ParamInfo;
+import org.apache.flink.ml.api.misc.param.ParamInfoFactory;
 import org.apache.flink.ml.api.misc.param.WithParams;
 
-import java.io.Serializable;
-
 /**
- * Base class for a stage in a pipeline. The interface is only a concept, and does not have any
- * actual functionality. Its subclasses must be either Estimator or Transformer. No other classes
- * should inherit this interface directly.
- *
- * <p>Each pipeline stage is with parameters, and requires a public empty constructor for
- * restoration in Pipeline.
- *
- * @param <T> The class type of the PipelineStage implementation itself, used by {@link
- *            org.apache.flink.ml.api.misc.param.WithParams}
- * @see WithParams
+ * @param <T>
  */
-interface PipelineStage<T extends PipelineStage<T>> extends WithParams<T>, Serializable {
+public interface WithModelFile<T extends WithModelFile<T>> extends WithParams<T> {
+	ParamInfo<String> MODEL_FILE_PATH = ParamInfoFactory.createParamInfo("modelFilePath",
+		String.class)
+		.setDescription("where to save the model files, filenames are fixed")
+		.setOptional()
+		.setHasDefaultValue("./").build();
 
-	default String toJson() {
-		return getParams().toJson();
+	default String getModelFilePath() {
+		return get(MODEL_FILE_PATH);
 	}
 
-	default void loadJson(String json) {
-		getParams().loadJson(json);
+	default T setModelFilePath(String path) {
+		return set(MODEL_FILE_PATH, path);
 	}
 }

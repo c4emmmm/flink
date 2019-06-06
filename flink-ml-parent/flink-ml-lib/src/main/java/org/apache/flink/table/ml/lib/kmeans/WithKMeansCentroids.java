@@ -16,31 +16,26 @@
  * limitations under the License.
  */
 
-package org.apache.flink.ml.api.core;
+package org.apache.flink.table.ml.lib.kmeans;
 
+import org.apache.flink.ml.api.misc.param.ParamInfo;
+import org.apache.flink.ml.api.misc.param.ParamInfoFactory;
 import org.apache.flink.ml.api.misc.param.WithParams;
 
-import java.io.Serializable;
-
 /**
- * Base class for a stage in a pipeline. The interface is only a concept, and does not have any
- * actual functionality. Its subclasses must be either Estimator or Transformer. No other classes
- * should inherit this interface directly.
  *
- * <p>Each pipeline stage is with parameters, and requires a public empty constructor for
- * restoration in Pipeline.
- *
- * @param <T> The class type of the PipelineStage implementation itself, used by {@link
- *            org.apache.flink.ml.api.misc.param.WithParams}
- * @see WithParams
  */
-interface PipelineStage<T extends PipelineStage<T>> extends WithParams<T>, Serializable {
+public interface WithKMeansCentroids<T> extends WithParams<T> {
+	ParamInfo<double[][]> CENTROIDS = ParamInfoFactory
+		.createParamInfo("centroids", double[][].class)
+		.setDescription("centroids, trained by estimator")
+		.setRequired().build();
 
-	default String toJson() {
-		return getParams().toJson();
+	default T setCentroids(double[][] centorids) {
+		return set(CENTROIDS, centorids);
 	}
 
-	default void loadJson(String json) {
-		getParams().loadJson(json);
+	default double[][] getCentroids() {
+		return get(CENTROIDS);
 	}
 }

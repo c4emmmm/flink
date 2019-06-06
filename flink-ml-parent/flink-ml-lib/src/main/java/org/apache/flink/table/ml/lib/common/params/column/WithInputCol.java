@@ -16,31 +16,26 @@
  * limitations under the License.
  */
 
-package org.apache.flink.ml.api.core;
+package org.apache.flink.table.ml.lib.common.params.column;
 
+import org.apache.flink.ml.api.misc.param.ParamInfo;
+import org.apache.flink.ml.api.misc.param.ParamInfoFactory;
 import org.apache.flink.ml.api.misc.param.WithParams;
 
-import java.io.Serializable;
-
 /**
- * Base class for a stage in a pipeline. The interface is only a concept, and does not have any
- * actual functionality. Its subclasses must be either Estimator or Transformer. No other classes
- * should inherit this interface directly.
- *
- * <p>Each pipeline stage is with parameters, and requires a public empty constructor for
- * restoration in Pipeline.
- *
- * @param <T> The class type of the PipelineStage implementation itself, used by {@link
- *            org.apache.flink.ml.api.misc.param.WithParams}
- * @see WithParams
+ * @param <T>
  */
-interface PipelineStage<T extends PipelineStage<T>> extends WithParams<T>, Serializable {
+public interface WithInputCol<T extends WithInputCol<T>> extends WithParams<T> {
+	ParamInfo<String> INPUT_COL = ParamInfoFactory
+		.createParamInfo("input_col", String.class)
+		.setDescription("column of input data")
+		.setRequired().build();
 
-	default String toJson() {
-		return getParams().toJson();
+	default String getInputCol() {
+		return get(INPUT_COL);
 	}
 
-	default void loadJson(String json) {
-		getParams().loadJson(json);
+	default T setInputCol(String inputCol) {
+		return set(INPUT_COL, inputCol);
 	}
 }

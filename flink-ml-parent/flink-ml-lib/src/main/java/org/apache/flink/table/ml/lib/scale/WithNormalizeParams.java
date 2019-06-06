@@ -16,31 +16,34 @@
  * limitations under the License.
  */
 
-package org.apache.flink.ml.api.core;
+package org.apache.flink.table.ml.lib.scale;
 
+import org.apache.flink.ml.api.misc.param.ParamInfo;
 import org.apache.flink.ml.api.misc.param.WithParams;
-
-import java.io.Serializable;
+import org.apache.flink.table.ml.lib.common.params.column.WithInputCol;
+import org.apache.flink.table.ml.lib.common.params.column.WithOutputCol;
 
 /**
- * Base class for a stage in a pipeline. The interface is only a concept, and does not have any
- * actual functionality. Its subclasses must be either Estimator or Transformer. No other classes
- * should inherit this interface directly.
- *
- * <p>Each pipeline stage is with parameters, and requires a public empty constructor for
- * restoration in Pipeline.
- *
- * @param <T> The class type of the PipelineStage implementation itself, used by {@link
- *            org.apache.flink.ml.api.misc.param.WithParams}
- * @see WithParams
+ * @param <T>
  */
-interface PipelineStage<T extends PipelineStage<T>> extends WithParams<T>, Serializable {
+public interface WithNormalizeParams<T extends WithNormalizeParams<T>> extends WithParams<T>,
+	WithInputCol<T>, WithOutputCol<T> {
+	ParamInfo<Double> INPUT_MAX = WithScaleParams.INPUT_MAX;
+	ParamInfo<Double> INPUT_MIN = WithScaleParams.INPUT_MIN;
 
-	default String toJson() {
-		return getParams().toJson();
+	default double getInputMax() {
+		return get(INPUT_MAX);
 	}
 
-	default void loadJson(String json) {
-		getParams().loadJson(json);
+	default T setInputMax(double inputMax) {
+		return set(INPUT_MAX, inputMax);
+	}
+
+	default double getInputMin() {
+		return get(INPUT_MIN);
+	}
+
+	default T setInputMin(double inputMin) {
+		return set(INPUT_MIN, inputMin);
 	}
 }

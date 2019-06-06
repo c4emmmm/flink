@@ -16,31 +16,27 @@
  * limitations under the License.
  */
 
-package org.apache.flink.ml.api.core;
+package org.apache.flink.table.ml.lib.common.params.iteration;
 
+import org.apache.flink.ml.api.misc.param.ParamInfo;
+import org.apache.flink.ml.api.misc.param.ParamInfoFactory;
 import org.apache.flink.ml.api.misc.param.WithParams;
 
-import java.io.Serializable;
-
 /**
- * Base class for a stage in a pipeline. The interface is only a concept, and does not have any
- * actual functionality. Its subclasses must be either Estimator or Transformer. No other classes
- * should inherit this interface directly.
- *
- * <p>Each pipeline stage is with parameters, and requires a public empty constructor for
- * restoration in Pipeline.
- *
- * @param <T> The class type of the PipelineStage implementation itself, used by {@link
- *            org.apache.flink.ml.api.misc.param.WithParams}
- * @see WithParams
+ * @param <T>
  */
-interface PipelineStage<T extends PipelineStage<T>> extends WithParams<T>, Serializable {
+public interface WithMaxIter<T extends WithMaxIter<T>> extends WithParams<T> {
+	ParamInfo<Integer> MAX_ITER = ParamInfoFactory
+		.createParamInfo("max_iter", Integer.class)
+		.setDescription("max time of iteration, <=0 stands for unlimited, fit till converged")
+		.setOptional()
+		.setHasDefaultValue(100).build();
 
-	default String toJson() {
-		return getParams().toJson();
+	default T setMaxIter(int maxIter) {
+		return set(MAX_ITER, maxIter);
 	}
 
-	default void loadJson(String json) {
-		getParams().loadJson(json);
+	default int getMaxIter() {
+		return get(MAX_ITER);
 	}
 }
