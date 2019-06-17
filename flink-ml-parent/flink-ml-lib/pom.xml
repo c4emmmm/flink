@@ -28,7 +28,7 @@ under the License.
 		<version>1.9-SNAPSHOT</version>
 	</parent>
 
-	<artifactId>flink-ml-lib</artifactId>
+	<artifactId>flink-ml-lib_${scala.binary.version}</artifactId>
 
 	<dependencies>
 		<dependency>
