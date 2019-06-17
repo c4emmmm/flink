@@ -29,6 +29,10 @@ import org.apache.flink.table.ml.lib.common.params.column.WithOutputCol;
  */
 public interface WithConnectParams<T extends WithConnectParams<T>> extends WithParams<T>,
 	WithInputCols<T>, WithOutputCol<T> {
+	ParamInfo<int[]> INPUT_DIM = ParamInfoFactory
+		.createParamInfo("input_dim", int[].class)
+		.setDescription("input_dim")
+		.setRequired().build();
 	ParamInfo<String[]> ARRAY_COLS = ParamInfoFactory
 		.createParamInfo("double_cols", String[].class)
 		.setDescription("columns whose value is double array, other fields must be double")
@@ -38,6 +42,14 @@ public interface WithConnectParams<T extends WithConnectParams<T>> extends WithP
 		.createParamInfo("dim", Integer.class)
 		.setDescription("dim")
 		.setRequired().build();
+
+	default int[] getInputDim() {
+		return get(INPUT_DIM);
+	}
+
+	default T setInputDim(int[] inputDim) {
+		return set(INPUT_DIM, inputDim);
+	}
 
 	default String[] getArrayCols() {
 		return get(ARRAY_COLS);

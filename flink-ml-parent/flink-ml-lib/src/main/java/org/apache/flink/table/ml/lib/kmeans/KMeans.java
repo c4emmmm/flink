@@ -61,6 +61,7 @@ public class KMeans implements Estimator<KMeans, KMeansModel>, WithKMeansParams<
 
 			String computeCentoridsExpr = ExpressionUtil
 				.genAppendUdfCallExpr(avgUniqName, inputCol, "centroids", "kmeans_idx");
+			//todo: seems that kmeans_idx may be less than k in extreme case
 			Table centroidsTable = inputWithCluster.groupBy("kmeans_idx")
 				.select(computeCentoridsExpr)
 				.orderBy("kmeans_idx");

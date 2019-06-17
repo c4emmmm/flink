@@ -23,6 +23,22 @@ package org.apache.flink.table.ml.lib.util;
  */
 public class ExpressionUtil {
 
+	public static String genUdfCallExpr(String udfName, String inputField, String[] resultField) {
+		return genUdfCallExpr(udfName, new String[]{inputField}, resultField);
+	}
+
+	public static String genUdfCallExpr(String udfName, String[] inputField, String[] resultField) {
+		StringBuilder asExpr = new StringBuilder().append("(");
+		for (int i = 0; i < resultField.length; i++) {
+			if (i != 0) {
+				asExpr.append(", ");
+			}
+			asExpr.append(resultField[i]);
+		}
+		asExpr.append(")");
+		return genUdfCallExpr(udfName, inputField, asExpr.toString());
+	}
+
 	public static String genUdfCallExpr(String udfName, String inputField, String resultField) {
 		return genUdfCallExpr(udfName, new String[]{inputField}, resultField);
 	}

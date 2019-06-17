@@ -51,6 +51,8 @@ public class Scale implements Transformer<Scale>, WithScaleParams<Scale> {
 			Tuple2<Double, Double> minMax = extractBatchMinMax(tEnv, input);
 			inMin = minMax.f0;
 			inMax = minMax.f1;
+			setInputMin(inMin);
+			setInputMax(inMax);
 		}
 
 		ScaleFunction func = new ScaleFunction(inMin, inMax, getOutputMin(), getOutputMax());
