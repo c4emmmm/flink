@@ -60,6 +60,51 @@ under the License.
 			<artifactId>core</artifactId>
 			<version>1.1.2</version>
 		</dependency>
+
+
+<!--		<dependency>-->
+<!--			<groupId>org.apache.flink</groupId>-->
+<!--			<artifactId>flink-streaming-java_${scala.binary.version}</artifactId>-->
+<!--			<version>${project.version}</version>-->
+<!--		</dependency>-->
+<!--		<dependency>-->
+<!--			<groupId>org.apache.flink</groupId>-->
+<!--			<artifactId>flink-table-api-java</artifactId>-->
+<!--			<version>${project.version}</version>-->
+<!--		</dependency>-->
+<!--		<dependency>-->
+<!--			<groupId>org.apache.flink</groupId>-->
+<!--			<artifactId>flink-table-api-java-bridge_${scala.binary.version}</artifactId>-->
+<!--			<version>${project.version}</version>-->
+<!--		</dependency>-->
+<!--		<dependency>-->
+<!--			<groupId>org.apache.flink</groupId>-->
+<!--			<artifactId>flink-table-planner_${scala.binary.version}</artifactId>-->
+<!--			<version>${project.version}</version>-->
+<!--		</dependency>-->
+<!--		<dependency>-->
+<!--			<groupId>org.apache.flink</groupId>-->
+<!--			<artifactId>flink-ml-api</artifactId>-->
+<!--			<version>${project.version}</version>-->
+<!--		</dependency>-->
+<!--		<dependency>-->
+<!--			<groupId>org.apache.flink</groupId>-->
+<!--			<artifactId>flink-shaded-jackson</artifactId>-->
+<!--			<version>${jackson.version}-${flink.shaded.version}</version>-->
+<!--		</dependency>-->
+
+<!--		&lt;!&ndash; for flink-table-planner &ndash;&gt;-->
+<!--		<dependency>-->
+<!--			<groupId>com.google.guava</groupId>-->
+<!--			<artifactId>guava</artifactId>-->
+<!--			<version>19.0</version>-->
+<!--		</dependency>-->
+
+<!--		<dependency>-->
+<!--			<groupId>com.github.fommil.netlib</groupId>-->
+<!--			<artifactId>core</artifactId>-->
+<!--			<version>1.1.2</version>-->
+<!--		</dependency>-->
 	</dependencies>
 
 </project>
