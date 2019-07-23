@@ -244,7 +244,7 @@ public class ContinuousFileMonitoringFunction<OUT>
 		for (Map.Entry<Long, List<TimestampedFileInputSplit>> splits: splitsSortedByModTime.entrySet()) {
 			long modificationTime = splits.getKey();
 			for (TimestampedFileInputSplit split: splits.getValue()) {
-				LOG.info("Forwarding split: " + split);
+//				LOG.info("Forwarding split: " + split);
 				context.collect(split);
 			}
 			// update the global modification time

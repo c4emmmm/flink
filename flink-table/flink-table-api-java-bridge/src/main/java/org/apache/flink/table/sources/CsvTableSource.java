@@ -28,6 +28,7 @@ import org.apache.flink.core.fs.FileInputSplit;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.source.FileProcessingMode;
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.functions.AsyncTableFunction;
 import org.apache.flink.table.functions.FunctionContext;
@@ -45,8 +46,8 @@ import java.util.Objects;
 import java.util.stream.IntStream;
 
 /**
- * A {@link StreamTableSource} and {@link BatchTableSource} for simple CSV files with a
- * (logically) unlimited number of fields.
+ * A {@link StreamTableSource} and {@link BatchTableSource} for simple CSV files with a (logically)
+ * unlimited number of fields.
  */
 public class CsvTableSource
 	implements StreamTableSource<Row>, BatchTableSource<Row>, LookupableTableSource<Row>,
@@ -178,12 +179,15 @@ public class CsvTableSource
 
 	@Override
 	public DataStream<Row> getDataStream(StreamExecutionEnvironment execEnv) {
-		return execEnv.createInput(config.createInputFormat(), getReturnType()).name(explainSource());
+		return execEnv.readFile(config.createInputFormat(), config.path,
+			FileProcessingMode.PROCESS_CONTINUOUSLY, 10000L,
+			getReturnType()).name(explainSource());
 	}
 
 	@Override
 	public DataSet<Row> getDataSet(ExecutionEnvironment execEnv) {
-		return execEnv.createInput(config.createInputFormat(), getReturnType()).name(explainSource());
+		return execEnv.createInput(config.createInputFormat(), getReturnType())
+			.name(explainSource());
 	}
 
 	@Override

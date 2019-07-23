@@ -35,6 +35,7 @@ import org.apache.flink.streaming.api.operators.OutputTypeConfigurable;
 import org.apache.flink.streaming.api.operators.StreamSourceContexts;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.types.Row;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,9 +56,8 @@ import static org.apache.flink.util.Preconditions.checkState;
  * which has a parallelism of 1, this operator can have DOP > 1.
  *
  * <p>As soon as a split descriptor is received, it is put in a queue, and have another
- * thread read the actual data of the split. This architecture allows the separation of the
- * reading thread from the one emitting the checkpoint barriers, thus removing any potential
- * back-pressure.
+ * thread read the actual data of the split. This architecture allows the separation of the reading
+ * thread from the one emitting the checkpoint barriers, thus removing any potential back-pressure.
  */
 @Internal
 public class ContinuousFileReaderOperator<OUT> extends AbstractStreamOperator<OUT>
@@ -91,13 +91,14 @@ public class ContinuousFileReaderOperator<OUT> extends AbstractStreamOperator<OU
 	public void initializeState(StateInitializationContext context) throws Exception {
 		super.initializeState(context);
 
-		checkState(checkpointedState == null,	"The reader state has already been initialized.");
+		checkState(checkpointedState == null, "The reader state has already been initialized.");
 
 		checkpointedState = context.getOperatorStateStore().getSerializableListState("splits");
 
 		int subtaskIdx = getRuntimeContext().getIndexOfThisSubtask();
 		if (context.isRestored()) {
-			LOG.info("Restoring state for the {} (taskIdx={}).", getClass().getSimpleName(), subtaskIdx);
+			LOG.info("Restoring state for the {} (taskIdx={}).", getClass().getSimpleName(),
+				subtaskIdx);
 
 			// this may not be null in case we migrate from a previous Flink version.
 			if (restoredReaderState == null) {
@@ -107,11 +108,13 @@ public class ContinuousFileReaderOperator<OUT> extends AbstractStreamOperator<OU
 				}
 
 				if (LOG.isDebugEnabled()) {
-					LOG.debug("{} (taskIdx={}) restored {}.", getClass().getSimpleName(), subtaskIdx, restoredReaderState);
+					LOG.debug("{} (taskIdx={}) restored {}.", getClass().getSimpleName(),
+						subtaskIdx, restoredReaderState);
 				}
 			}
 		} else {
-			LOG.info("No state to restore for the {} (taskIdx={}).", getClass().getSimpleName(), subtaskIdx);
+			LOG.info("No state to restore for the {} (taskIdx={}).", getClass().getSimpleName(),
+				subtaskIdx);
 		}
 	}
 
@@ -129,7 +132,8 @@ public class ContinuousFileReaderOperator<OUT> extends AbstractStreamOperator<OU
 
 		// set the reader context based on the time characteristic
 		final TimeCharacteristic timeCharacteristic = getOperatorConfig().getTimeCharacteristic();
-		final long watermarkInterval = getRuntimeContext().getExecutionConfig().getAutoWatermarkInterval();
+		final long watermarkInterval =
+			getRuntimeContext().getExecutionConfig().getAutoWatermarkInterval();
 		this.readerContext = StreamSourceContexts.getSourceContext(
 			timeCharacteristic,
 			getProcessingTimeService(),
@@ -140,7 +144,8 @@ public class ContinuousFileReaderOperator<OUT> extends AbstractStreamOperator<OU
 			-1);
 
 		// and initialize the split reading thread
-		this.reader = new SplitReader<>(format, serializer, readerContext, checkpointLock, restoredReaderState);
+		this.reader = new SplitReader<>(format, serializer, readerContext, checkpointLock,
+			restoredReaderState);
 		this.restoredReaderState = null;
 		this.reader.start();
 	}
@@ -148,6 +153,12 @@ public class ContinuousFileReaderOperator<OUT> extends AbstractStreamOperator<OU
 	@Override
 	public void processElement(StreamRecord<TimestampedFileInputSplit> element) throws Exception {
 		reader.addSplit(element.getValue());
+		Row r = new Row(3);
+		System.err.println(element.getValue().getPath());
+		r.setField(0, element.getValue().getSplitNumber());
+		r.setField(1, element.getValue().getModificationTime() * 1.0d);
+		r.setField(2, element.getValue().getStart() * 1.0d);
+		readerContext.collect((OUT) r);
 	}
 
 	@Override
@@ -237,11 +248,12 @@ public class ContinuousFileReaderOperator<OUT> extends AbstractStreamOperator<OU
 
 		private volatile boolean isSplitOpen;
 
-		private SplitReader(FileInputFormat<OT> format,
-					TypeSerializer<OT> serializer,
-					SourceFunction.SourceContext<OT> readerContext,
-					Object checkpointLock,
-					List<TimestampedFileInputSplit> restoredState) {
+		private SplitReader(
+			FileInputFormat<OT> format,
+			TypeSerializer<OT> serializer,
+			SourceFunction.SourceContext<OT> readerContext,
+			Object checkpointLock,
+			List<TimestampedFileInputSplit> restoredState) {
 
 			this.format = checkNotNull(format, "Unspecified FileInputFormat.");
 			this.serializer = checkNotNull(serializer, "Unspecified Serializer.");
@@ -298,11 +310,12 @@ public class ContinuousFileReaderOperator<OUT> extends AbstractStreamOperator<OU
 							}
 						}
 
-						if (this.format instanceof CheckpointableInputFormat && currentSplit.getSplitState() != null) {
+						if (this.format instanceof CheckpointableInputFormat &&
+							currentSplit.getSplitState() != null) {
 							// recovering after a node failure with an input
 							// format that supports resetting the offset
-							((CheckpointableInputFormat<TimestampedFileInputSplit, Serializable>) this.format).
-								reopen(currentSplit, currentSplit.getSplitState());
+							((CheckpointableInputFormat<TimestampedFileInputSplit, Serializable>) this.format)
+								.reopen(currentSplit, currentSplit.getSplitState());
 						} else {
 							// we either have a new split, or we recovered from a node
 							// failure but the input format does not support resetting the offset.
@@ -342,7 +355,9 @@ public class ContinuousFileReaderOperator<OUT> extends AbstractStreamOperator<OU
 
 			} catch (Throwable e) {
 
-				getContainingTask().handleAsyncException("Caught exception when processing split: " + currentSplit, e);
+				getContainingTask()
+					.handleAsyncException("Caught exception when processing split: " + currentSplit,
+						e);
 
 			} finally {
 				synchronized (checkpointLock) {
@@ -352,7 +367,8 @@ public class ContinuousFileReaderOperator<OUT> extends AbstractStreamOperator<OU
 						this.format.closeInputFormat();
 					} catch (IOException e) {
 						getContainingTask().handleAsyncException(
-							"Caught exception from " + this.format.getClass().getName() + ".closeInputFormat() : " + e.getMessage(), e);
+							"Caught exception from " + this.format.getClass().getName() +
+								".closeInputFormat() : " + e.getMessage(), e);
 					}
 					this.isSplitOpen = false;
 					this.currentSplit = null;
@@ -368,7 +384,8 @@ public class ContinuousFileReaderOperator<OUT> extends AbstractStreamOperator<OU
 			if (currentSplit != null) {
 				if (this.format instanceof CheckpointableInputFormat && this.isSplitOpen) {
 					Serializable formatState =
-						((CheckpointableInputFormat<TimestampedFileInputSplit, Serializable>) this.format).getCurrentState();
+						((CheckpointableInputFormat<TimestampedFileInputSplit, Serializable>) this.format)
+							.getCurrentState();
 					this.currentSplit.setSplitState(formatState);
 				}
 				snapshot.add(this.currentSplit);
