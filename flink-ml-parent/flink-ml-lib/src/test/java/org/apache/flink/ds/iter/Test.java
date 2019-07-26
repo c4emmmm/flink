@@ -30,6 +30,73 @@ import java.util.concurrent.LinkedBlockingQueue;
 public class Test {
 
 	@org.junit.Test
+	public void testPS() throws Exception{
+		int parallelism = 3;
+		StreamExecutionEnvironment sEnv = StreamExecutionEnvironment.createLocalEnvironment(3);
+
+		DataStream<Data> model = sEnv.addSource(new SourceFunction<Data>() {
+			@Override
+			public void run(SourceContext<Data> ctx) throws Exception {
+				while (true) {
+					Thread.sleep(60000);
+					Data c00 = new Data();
+					c00.data = new double[]{0, 0};
+					c00.key = "00";
+					ctx.collect(c00);
+					Data c01 = new Data();
+					c01.data = new double[]{0, 1};
+					c01.key = "01";
+					ctx.collect(c01);
+					Data c10 = new Data();
+					c10.data = new double[]{1, 0};
+					c10.key = "10";
+					ctx.collect(c10);
+					Data c11 = new Data();
+					c11.data = new double[]{1, 1};
+					c11.key = "11";
+					ctx.collect(c11);
+					Data eob = new Data();
+					eob.isEob = true;
+					eob.isData = false;
+					ctx.collect(eob);
+				}
+			}
+
+			@Override
+			public void cancel() {
+
+			}
+		});
+		DataStream<Data> data = sEnv.addSource(new SourceFunction<Data>() {
+			String[] keys = new String[]{"c00", "c01", "c10", "c11"};
+			double[][] cs =
+				new double[][]{new double[]{0, 0}, new double[]{0, 1}, new double[]{1, 0},
+					new double[]{1, 1}};
+
+			@Override
+			public void run(SourceContext<Data> ctx) throws Exception {
+				while (true) {
+					Thread.sleep(10);
+					Data d = new Data();
+					int idx = (int) (Math.random() * 4);
+					d.data = cs[idx];
+					d.key = keys[idx];
+					d.data = new double[]{d.data[0] + Math.random() * 0.6 - 0.3,
+						d.data[1] + Math.random() * 0.6 - 0.3};
+					ctx.collect(d);
+				}
+			}
+
+			@Override
+			public void cancel() {
+
+			}
+		});
+
+
+	}
+
+	@org.junit.Test
 	public void testLR() throws Exception {
 		int parallelism = 3;
 		StreamExecutionEnvironment sEnv = StreamExecutionEnvironment.createLocalEnvironment(3);
