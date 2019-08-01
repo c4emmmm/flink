@@ -39,10 +39,10 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 
 /**
- * The closure cleaner is a utility that tries to truncate the closure (enclosing instance)
- * of non-static inner classes (created for inline transformation functions). That makes non-static
- * inner classes in many cases serializable, where Java's default behavior renders them non-serializable
- * without good reason.
+ * The closure cleaner is a utility that tries to truncate the closure (enclosing instance) of
+ * non-static inner classes (created for inline transformation functions). That makes non-static
+ * inner classes in many cases serializable, where Java's default behavior renders them
+ * non-serializable without good reason.
  */
 @Internal
 public class ClosureCleaner {
@@ -50,21 +50,21 @@ public class ClosureCleaner {
 	private static final Logger LOG = LoggerFactory.getLogger(ClosureCleaner.class);
 
 	/**
-	 * Tries to clean the closure of the given object, if the object is a non-static inner
-	 * class.
+	 * Tries to clean the closure of the given object, if the object is a non-static inner class.
 	 *
-	 * @param func The object whose closure should be cleaned.
-	 * @param level the clean up level.
-	 * @param checkSerializable Flag to indicate whether serializability should be checked after
-	 *                          the closure cleaning attempt.
-	 *
+	 * @param func              The object whose closure should be cleaned.
+	 * @param level             the clean up level.
+	 * @param checkSerializable Flag to indicate whether serializability should be checked after the
+	 *                          closure cleaning attempt.
 	 * @throws InvalidProgramException Thrown, if 'checkSerializable' is true, and the object was
 	 *                                 not serializable after the closure cleaning.
-	 *
-	 * @throws RuntimeException A RuntimeException may be thrown, if the code of the class could not
-	 *                          be loaded, in order to process during the closure cleaning.
+	 * @throws RuntimeException        A RuntimeException may be thrown, if the code of the class
+	 *                                 could not be loaded, in order to process during the closure
+	 *                                 cleaning.
 	 */
-	public static void clean(Object func, ExecutionConfig.ClosureCleanerLevel level, boolean checkSerializable) {
+	public static void clean(Object func,
+		ExecutionConfig.ClosureCleanerLevel level,
+		boolean checkSerializable) {
 		if (func == null) {
 			return;
 		}
@@ -83,7 +83,7 @@ public class ClosureCleaner {
 		// be "this$x" depending on the nesting
 		boolean closureAccessed = false;
 
-		for (Field f: cls.getDeclaredFields()) {
+		for (Field f : cls.getDeclaredFields()) {
 			if (f.getName().startsWith("this$")) {
 				// found a closure referencing field - now try to clean
 				closureAccessed |= cleanThis0(func, cls, f.getName());
@@ -93,7 +93,9 @@ public class ClosureCleaner {
 					f.setAccessible(true);
 					fieldObject = f.get(func);
 				} catch (IllegalAccessException e) {
-					throw new RuntimeException(String.format("Can not access to the %s field in Class %s", f.getName(), func.getClass()));
+					throw new RuntimeException(String
+						.format("Can not access to the %s field in Class %s", f.getName(),
+							func.getClass()));
 				}
 
 				/*
@@ -107,7 +109,8 @@ public class ClosureCleaner {
 				 * d) Local classes (named classes declared within a method)
 				 * e) Anonymous classes
 				 */
-				if (level == ExecutionConfig.ClosureCleanerLevel.RECURSIVE && needsRecursion(f, fieldObject)) {
+				if (level == ExecutionConfig.ClosureCleanerLevel.RECURSIVE &&
+					needsRecursion(f, fieldObject)) {
 					if (LOG.isDebugEnabled()) {
 						LOG.debug("Dig to clean the {}", fieldObject.getClass().getName());
 					}
@@ -120,19 +123,18 @@ public class ClosureCleaner {
 		if (checkSerializable) {
 			try {
 				InstantiationUtil.serializeObject(func);
-			}
-			catch (Exception e) {
+			} catch (Exception e) {
 				String functionType = getSuperClassOrInterfaceName(func.getClass());
 
 				String msg = functionType == null ?
-						(func + " is not serializable.") :
-						("The implementation of the " + functionType + " is not serializable.");
+					(func + " is not serializable.") :
+					("The implementation of the " + functionType + " is not serializable.");
 
 				if (closureAccessed) {
 					msg += " The implementation accesses fields of its enclosing class, which is " +
-							"a common reason for non-serializability. " +
-							"A common solution is to make the function a proper (non-inner) class, or " +
-							"a static inner class.";
+						"a common reason for non-serializability. " +
+						"A common solution is to make the function a proper (non-inner) class, or " +
+						"a static inner class.";
 				} else {
 					msg += " The object probably contains or references non serializable fields.";
 				}
@@ -144,15 +146,16 @@ public class ClosureCleaner {
 
 	private static boolean needsRecursion(Field f, Object fo) {
 		return (fo != null &&
-				!Modifier.isStatic(f.getModifiers()) &&
-				!Modifier.isTransient(f.getModifiers()));
+			!Modifier.isStatic(f.getModifiers()) &&
+			!Modifier.isTransient(f.getModifiers()));
 	}
 
 	private static boolean usesCustomSerialization(Class<?> cls) {
 		try {
 			cls.getDeclaredMethod("writeObject", ObjectOutputStream.class);
 			return true;
-		} catch (NoSuchMethodException ignored) {}
+		} catch (NoSuchMethodException ignored) {
+		}
 
 		return Externalizable.class.isAssignableFrom(cls);
 	}
@@ -188,10 +191,10 @@ public class ClosureCleaner {
 			try {
 				this0.setAccessible(true);
 				this0.set(func, null);
-			}
-			catch (Exception e) {
+			} catch (Exception e) {
 				// should not happen, since we use setAccessible
-				throw new RuntimeException("Could not set " + this0Name + " to null. " + e.getMessage(), e);
+				throw new RuntimeException(
+					"Could not set " + this0Name + " to null. " + e.getMessage(), e);
 			}
 		}
 
@@ -223,8 +226,8 @@ public class ClosureCleaner {
 }
 
 /**
- * This visitor walks methods and finds accesses to the field with the reference to
- * the enclosing class.
+ * This visitor walks methods and finds accesses to the field with the reference to the enclosing
+ * class.
  */
 class This0AccessFinder extends ClassVisitor {
 
@@ -241,7 +244,11 @@ class This0AccessFinder extends ClassVisitor {
 	}
 
 	@Override
-	public MethodVisitor visitMethod(int access, String name, String desc, String sig, String[] exceptions) {
+	public MethodVisitor visitMethod(int access,
+		String name,
+		String desc,
+		String sig,
+		String[] exceptions) {
 		return new MethodVisitor(Opcodes.ASM6) {
 
 			@Override

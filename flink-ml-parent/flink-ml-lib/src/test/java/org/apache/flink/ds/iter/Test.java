@@ -1,36 +1,18 @@
 package org.apache.flink.ds.iter;
 
-import org.apache.flink.api.common.functions.MapFunction;
-import org.apache.flink.api.common.functions.RichFlatMapFunction;
-import org.apache.flink.api.common.state.MapState;
-import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.PrimitiveArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
-import org.apache.flink.api.java.typeutils.MapTypeInfo;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
-import org.apache.flink.util.Collector;
-import org.apache.flink.util.OutputTag;
 
-import com.google.gson.Gson;
-import org.apache.commons.math3.linear.ArrayRealVector;
-import org.apache.commons.math3.linear.RealVector;
-
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  *
@@ -56,42 +38,21 @@ public class Test {
 				}
 				return keys;
 			},
-			(m, f) -> {
+			(PsMerger<Tuple2<Integer, Double>, Tuple2<Integer, Double>>) (m, f) -> {
 				assert (m.f0.equals(f.f0));
 				m.f1 += f.f1;
 				return m;
 			},
-			(in) -> in.map(
-				(MapFunction<Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>>, Tuple3<double[], double[], Double>>) value -> {
-					double[] weights = new double[value.f0.f0.length + 1];
-					for (Tuple2<Integer, Double> m : value.f1.values()) {
-						weights[m.f0] = m.f1;
-					}
-					System.out.println("model:" + new Gson().toJson(weights));
-					return new Tuple3<>(value.f0.f0, weights, value.f0.f1);
-				}).flatMap(
-				new RichFlatMapFunction<Tuple3<double[], double[], Double>,
-					Tuple2<Integer, Double>>() {
-					@Override
-					public void flatMap(Tuple3<double[], double[], Double> value,
-						Collector<Tuple2<Integer, Double>> out) throws Exception {
-						RealVector data = new ArrayRealVector(value.f0).append(1);
-						RealVector weights = new ArrayRealVector(value.f1);
-						double label = value.f2;
-						double pred = data.dotProduct(weights);
-						double loss = pred - label;
-						double[] grad = data.mapMultiply(loss / pred).toArray();
-						for (int i = 0; i < grad.length; i++) {
-							out.collect(new Tuple2<>(i, grad[i]));
-						}
-					}
-				}),
-			in -> (SingleOutputStreamOperator<Tuple2<Integer, Double>>) in,
-			new TupleTypeInfo(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
-			new TupleTypeInfo(PrimitiveArrayTypeInfo.DOUBLE_PRIMITIVE_ARRAY_TYPE_INFO,
+			(StreamTransformer<
+				Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>>,
+				Tuple2<Integer, Double>>) (in) -> in.flatMap(new LRFlatMap()),
+			(StreamTransformer<Tuple2<Integer, Double>, Tuple2<Integer, Double>>) in -> in,
+			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
+			new TupleTypeInfo<>(PrimitiveArrayTypeInfo.DOUBLE_PRIMITIVE_ARRAY_TYPE_INFO,
 				BasicTypeInfo.DOUBLE_TYPE_INFO)
 		);
 
+		sEnv.execute();
 	}
 
 	private <M, D, F, R> void mlIterateWithKeyedPS(
@@ -103,8 +64,8 @@ public class Test {
 		PsMerger<M, F> merger,
 		StreamTransformer<Tuple2<D, Map<String, M>>, R> compute,
 		StreamTransformer<R, F> furtherProcess,
-		TypeInformation modelType,
-		TypeInformation dataType) {
+		TypeInformation<M> modelType,
+		TypeInformation<D> dataType) {
 
 		DataStream<ModelOrFeedback<M, F>> modelOrFeedback =
 			initialModel.flatMap(new FeedbackHeadFlatMap<>());
@@ -118,301 +79,16 @@ public class Test {
 				.connect(coDataKey.keyBy(f -> f.f1))
 				.flatMap(new PsCoProcessor<>(merger,
 					new ModelOrFeedbackKeySelector<>(modelKeySelector, feedbackKeySelector),
-					modelType));
+					modelType)).returns(new TupleTypeInfo<>(BasicTypeInfo.LONG_TYPE_INFO,
+				BasicTypeInfo.STRING_TYPE_INFO, modelType));
 
 		DataStream<Tuple2<D, Map<String, M>>> fullData =
 			coDataWithUUID.keyBy(f -> f.f0).connect(joinResult.keyBy(f -> f.f0))
 				.flatMap(new MergeDataFlatMap<>(dataType, modelType));
 
-		SingleOutputStreamOperator<R> feedback = compute.transform(fullData);
-
-		DataStream<M> resultModel = feedback.getSideOutput(new OutputTag<>("model"));
-		resultModel.map(v -> {
-			System.err.println(v);
-			return v;
-		});
+		DataStream<R> feedback = compute.transform(fullData);
 
 		furtherProcess.transform(feedback).flatMap(new FeedbackTailFlatMap<>());
-	}
-
-	/**
-	 *
-	 * @param <D>
-	 */
-	private static class FlattenDataKey<D> extends RichFlatMapFunction<Tuple3<Long, String[], D>,
-		Tuple2<Long, String>> {
-		@Override
-		public void flatMap(Tuple3<Long, String[], D> value,
-			Collector<Tuple2<Long, String>> out) throws Exception {
-			for (String k : value.f1) {
-				out.collect(new Tuple2<>(value.f0, k));
-			}
-		}
-	}
-
-	/**
-	 *
-	 * @param <M>
-	 * @param <F>
-	 */
-	private static class ModelOrFeedbackKeySelector<M, F> implements
-		KeySelector<ModelOrFeedback<M, F>, String> {
-		private final KeySelector<M, String> modelKeySelector;
-		private final KeySelector<F, String> feedbackKeySelector;
-
-		public ModelOrFeedbackKeySelector(KeySelector<M, String> modelKeySelector,
-			KeySelector<F, String> feedbackKeySelector) {
-			this.modelKeySelector = modelKeySelector;
-			this.feedbackKeySelector = feedbackKeySelector;
-		}
-
-		@Override
-		public String getKey(ModelOrFeedback<M, F> value) throws Exception {
-			return value.isModel ? modelKeySelector.getKey(value.model) :
-				feedbackKeySelector.getKey(value.feedback);
-		}
-	}
-
-	/**
-	 *
-	 * @param <D>
-	 * @param <M>
-	 */
-	private static class MergeDataFlatMap<D, M> extends
-		RichCoFlatMapFunction<Tuple3<Long, String[], D>, Tuple3<Long, String, M>,
-			Tuple2<D, Map<String, M>>> {
-		private MapState<Long, Tuple3<D, Set<String>, Map<String, M>>> state;
-		private TypeInformation<D> dataType;
-		private TypeInformation<M> modelType;
-
-		public MergeDataFlatMap(TypeInformation<D> dataType, TypeInformation<M> modelType) {
-			this.dataType = dataType;
-			this.modelType = modelType;
-		}
-
-		@Override
-		public void open(Configuration parameters) throws Exception {
-			super.open(parameters);
-			this.state = getRuntimeContext().getMapState(
-				new MapStateDescriptor<>("ps-state", BasicTypeInfo.LONG_TYPE_INFO,
-					new TupleTypeInfo<>(dataType,
-						TypeInformation.of(Set.class),
-						new MapTypeInfo<>(BasicTypeInfo.STRING_TYPE_INFO,
-							modelType))));
-		}
-
-		@Override
-		public void flatMap1(Tuple3<Long, String[], D> value,
-			Collector<Tuple2<D, Map<String, M>>> out) throws Exception {
-			long key = value.f0;
-			Tuple3<D, Set<String>, Map<String, M>> message =
-				new Tuple3<>(value.f2, new HashSet<>(Arrays.asList(value.f1)), null);
-			if (state.contains(key)) {
-				Tuple3<D, Set<String>, Map<String, M>> existingMessage = state.get(key);
-				for (Map.Entry<String, M> e : existingMessage.f2.entrySet()) {
-					process(message, e.getKey(), e.getValue());
-				}
-			}
-			outputOrSave(key, message, out);
-		}
-
-		@Override
-		public void flatMap2(Tuple3<Long, String, M> value,
-			Collector<Tuple2<D, Map<String, M>>> out) throws Exception {
-			long key = value.f0;
-			Tuple3<D, Set<String>, Map<String, M>> message;
-			if (state.contains(key)) {
-				message = state.get(key);
-			} else {
-				message = new Tuple3<>(null, new HashSet<>(), new HashMap<>());
-			}
-			if (message.f0 == null) {
-				message.f2.put(value.f1, value.f2);
-				state.put(key, message);
-			} else {
-				process(message, value.f1, value.f2);
-				outputOrSave(key, message, out);
-			}
-		}
-
-		private void process(Tuple3<D, Set<String>, Map<String, M>> message, String key, M value) {
-			message.f1.remove(key);
-			message.f2.put(key, value);
-		}
-
-		private void outputOrSave(long key, Tuple3<D, Set<String>, Map<String, M>> message,
-			Collector<Tuple2<D, Map<String, M>>> out) throws Exception {
-			if (message.f1.isEmpty()) {
-				state.remove(key);
-				out.collect(new Tuple2<>(message.f0, message.f2));
-			} else {
-				state.put(key, message);
-			}
-		}
-
-	}
-
-	/**
-	 *
-	 * @param <D>
-	 */
-	public static class DataUUIDAssigner<D> extends RichFlatMapFunction<D, Tuple3<Long, String[], D>> {
-		KeySelector<D, String[]> keyExtractor;
-
-		public DataUUIDAssigner(KeySelector<D, String[]> keyExtractor) {
-			this.keyExtractor = keyExtractor;
-		}
-
-		@Override
-		public void flatMap(D value, Collector<Tuple3<Long, String[], D>> out) throws Exception {
-			long id = nextId();
-			out.collect(new Tuple3<>(id, keyExtractor.getKey(value), value));
-		}
-
-		private long nextId() {
-			return System.nanoTime() * 1000 + (long) Math.floor(Math.random() * 1000);
-		}
-	}
-
-	/**
-	 *
-	 * @param <IN>
-	 * @param <OUT>
-	 */
-	private interface StreamTransformer<IN, OUT> {
-		SingleOutputStreamOperator<OUT> transform(DataStream<IN> in);
-	}
-
-	/**
-	 *
-	 * @param <M>
-	 * @param <F>
-	 */
-	private interface PsMerger<M, F> {
-		M merge(M model, F feedback);
-	}
-
-	/**
-	 *
-	 * @param <M>
-	 * @param <F>
-	 */
-	private static class PsCoProcessor<M, F> extends
-		RichCoFlatMapFunction<ModelOrFeedback<M, F>, Tuple2<Long, String>, Tuple3<Long, String, M>> {
-		private TypeInformation<M> modelType;
-		private PsMerger<M, F> merger;
-		private ModelOrFeedbackKeySelector<M, F> keySelector;
-		private MapState<String, M> state;
-
-		public PsCoProcessor(PsMerger<M, F> merger, ModelOrFeedbackKeySelector<M, F> keySelector,
-			TypeInformation<M> modelType) {
-			this.merger = merger;
-			this.keySelector = keySelector;
-			this.modelType = modelType;
-		}
-
-		@Override
-		public void open(Configuration parameters) throws Exception {
-			super.open(parameters);
-			this.state = getRuntimeContext().getMapState(
-				new MapStateDescriptor<>("ps-state", BasicTypeInfo.STRING_TYPE_INFO, modelType));
-		}
-
-		@Override
-		public void flatMap1(ModelOrFeedback<M, F> value, Collector<Tuple3<Long, String, M>> out)
-			throws Exception {
-			if (value.isModel) {
-				state.put(keySelector.getKey(value), value.model);
-			} else {
-				state.put(keySelector.getKey(value),
-					merger.merge(state.get(keySelector.getKey(value)), value.feedback));
-			}
-		}
-
-		@Override
-		public void flatMap2(Tuple2<Long, String> key, Collector<Tuple3<Long, String, M>> out)
-			throws Exception {
-			out.collect(new Tuple3<>(key.f0, key.f1, state.get(key.f1)));
-		}
-	}
-
-	/**
-	 *
-	 * @param <F>
-	 */
-	public static class FeedbackTailFlatMap<F>
-		extends RichFlatMapFunction<F, F> {
-
-		@Override
-		public void flatMap(F value, Collector<F> out) throws Exception {
-			FeedbackHeadFlatMap.queue.offer(value);
-		}
-	}
-
-	/**
-	 *
-	 * @param <M>
-	 * @param <F>
-	 */
-	public static class FeedbackHeadFlatMap<M, F>
-		extends RichFlatMapFunction<M, ModelOrFeedback<M, F>> {
-		public static LinkedBlockingQueue queue = new LinkedBlockingQueue();
-		public Boolean running = false;
-		public CollectThread thread;
-		public final Object lock = new Object();
-
-		@Override
-		public void flatMap(M value, Collector<ModelOrFeedback<M, F>> out) throws Exception {
-			if (!running) {
-				synchronized (lock) {
-					if (!running) {
-						thread = new CollectThread(out);
-						thread.run();
-						running = true;
-					}
-				}
-			}
-			out.collect(new ModelOrFeedback<>(false, value, null));
-		}
-
-		/**
-		 *
-		 */
-		public class CollectThread extends Thread {
-			Collector<ModelOrFeedback<M, F>> out;
-
-			public CollectThread(Collector<ModelOrFeedback<M, F>> out) {
-				this.out = out;
-			}
-
-			@Override
-			public void run() {
-				try {
-					F feedback = (F) queue.take();
-					out.collect(new ModelOrFeedback<>(false, null, feedback));
-				} catch (InterruptedException e) {
-					throw new RuntimeException(e);
-				}
-			}
-		}
-	}
-
-	/**
-	 *
-	 * @param <M>
-	 * @param <F>
-	 */
-	private static class ModelOrFeedback<M, F> {
-		boolean isModel; //or feedback
-		M model;
-		F feedback;
-
-		public ModelOrFeedback(boolean isModel, M model, F feedback) {
-			this.isModel = isModel;
-			this.model = model;
-			this.feedback = feedback;
-		}
-
 	}
 
 	private DataStream<Tuple2<double[], Double>> getDataSource(StreamExecutionEnvironment sEnv) {
@@ -420,13 +96,13 @@ public class Test {
 			@Override
 			public void run(SourceContext<Tuple2<double[], Double>> ctx) throws Exception {
 				while (true) {
-					Thread.sleep(10);
+					Thread.sleep(1000);
 					double[] data = new double[]{
 						Math.floor(Math.random() * 100) * 1.0,
 						Math.floor(Math.random() * 100) * 1.0,
 						Math.floor(Math.random() * 100) * 1.0
 					};
-					double label = data[0] * 11.1 + data[1] * 17.3 + data[3] * 7.7 + 23;
+					double label = data[0] * 11.1 + data[1] * 17.3 + data[2] * 7.7 + 23;
 					ctx.collect(new Tuple2<>(data, label));
 				}
 			}
