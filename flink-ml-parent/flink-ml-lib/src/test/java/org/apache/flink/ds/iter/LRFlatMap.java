@@ -18,6 +18,8 @@ public class LRFlatMap extends
 	RichFlatMapFunction<Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>>,
 		Tuple2<Integer, Double>> {
 
+	int iter = 30;
+
 	@Override
 	public void flatMap(Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>> value,
 		Collector<Tuple2<Integer, Double>> out) throws Exception {
@@ -29,16 +31,23 @@ public class LRFlatMap extends
 			}
 			weights[m.f0] = m.f1;
 		}
-		System.out.println("model:" + new Gson().toJson(weights));
+
 		Tuple3<double[], double[], Double> v = new Tuple3<>(value.f0.f0, weights,
 			value.f0.f1);
 		RealVector data = new ArrayRealVector(v.f0).append(1);
 		RealVector w = new ArrayRealVector(v.f1);
+
+		iter++;
+		double learningRate = 0.1 / Math.sqrt(iter / 30);
 		double label = v.f2;
 		double pred = data.dotProduct(w);
-		double loss = pred - label;
-		double[] grad = data.mapMultiply(loss / pred).toArray();
-		System.out.println("grad:" + new Gson().toJson(grad));
+		double diff = pred - label;
+		double[] grad = data.mapMultiply(diff).mapMultiply(-learningRate).toArray();
+
+		System.out.println("iter:" + iter + ", pred:" + String.format("%.2f", pred) + ", label: " +
+			String.format("%.2f", label) + ", diff:" + String.format("%.2f", diff) +
+			", model:" + new Gson().toJson(weights));
+
 		for (int i = 0; i < grad.length; i++) {
 			out.collect(new Tuple2<>(i, grad[i]));
 		}

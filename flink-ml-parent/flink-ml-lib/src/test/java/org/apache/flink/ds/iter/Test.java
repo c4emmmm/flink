@@ -6,7 +6,6 @@ import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
-import org.apache.flink.api.java.typeutils.MapTypeInfo;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.ds.iter.broadcast.BroadcastPsCoProcessor;
 import org.apache.flink.ds.iter.keyed.DataUUIDAssigner;
@@ -14,7 +13,6 @@ import org.apache.flink.ds.iter.keyed.FlattenDataKey;
 import org.apache.flink.ds.iter.keyed.KeyedPsCoProcessor;
 import org.apache.flink.ds.iter.keyed.MergeDataFlatMap;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 
@@ -38,8 +36,8 @@ public class Test {
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
 			data,
 			(KeySelector<Tuple2<double[], Double>, String[]>) value -> {
-				String[] keys = new String[value.f0.length];
-				for (int i = 0; i < value.f0.length; i++) {
+				String[] keys = new String[value.f0.length + 1];
+				for (int i = 0; i < value.f0.length + 1; i++) {
 					keys[i] = String.valueOf(i);
 				}
 				return keys;
@@ -119,12 +117,8 @@ public class Test {
 			@Override
 			public void run(SourceContext<Tuple2<double[], Double>> ctx) throws Exception {
 				while (true) {
-					Thread.sleep(1000);
-					double[] data = new double[]{
-						Math.floor(Math.random() * 100) * 1.0,
-						Math.floor(Math.random() * 100) * 1.0,
-						Math.floor(Math.random() * 100) * 1.0
-					};
+					Thread.sleep(20);
+					double[] data = new double[]{Math.random(), Math.random(), Math.random()};
 					double label = data[0] * 11.1 + data[1] * 17.3 + data[2] * 7.7 + 23;
 					ctx.collect(new Tuple2<>(data, label));
 				}
