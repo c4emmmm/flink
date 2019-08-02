@@ -1,4 +1,4 @@
-package org.apache.flink.ds.iter;
+package org.apache.flink.ds.iter.keyed;
 
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
@@ -7,6 +7,9 @@ import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.ds.iter.ModelOrFeedback;
+import org.apache.flink.ds.iter.ModelOrFeedbackKeySelector;
+import org.apache.flink.ds.iter.PsMerger;
 import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
 import org.apache.flink.util.Collector;
 
@@ -14,14 +17,14 @@ import org.apache.flink.util.Collector;
  * @param <M>
  * @param <F>
  */
-public class PsCoProcessor<M, F> extends
+public class KeyedPsCoProcessor<M, F> extends
 	RichCoFlatMapFunction<ModelOrFeedback<M, F>, Tuple2<Long, String>, Tuple3<Long, String, M>> {
 	private TypeInformation<M> modelType;
 	private PsMerger<M, F> merger;
 	private ModelOrFeedbackKeySelector<M, F> keySelector;
 	private MapState<String, M> state;
 
-	public PsCoProcessor(PsMerger<M, F> merger, ModelOrFeedbackKeySelector<M, F> keySelector,
+	public KeyedPsCoProcessor(PsMerger<M, F> merger, ModelOrFeedbackKeySelector<M, F> keySelector,
 		TypeInformation<M> modelType) {
 		this.merger = merger;
 		this.keySelector = keySelector;

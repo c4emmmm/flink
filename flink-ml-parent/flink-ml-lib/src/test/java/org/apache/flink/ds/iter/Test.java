@@ -6,7 +6,13 @@ import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.api.java.typeutils.MapTypeInfo;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
+import org.apache.flink.ds.iter.broadcast.BroadcastPsCoProcessor;
+import org.apache.flink.ds.iter.keyed.DataUUIDAssigner;
+import org.apache.flink.ds.iter.keyed.FlattenDataKey;
+import org.apache.flink.ds.iter.keyed.KeyedPsCoProcessor;
+import org.apache.flink.ds.iter.keyed.MergeDataFlatMap;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -26,7 +32,7 @@ public class Test {
 		DataStream<Tuple2<Integer, Double>> initialModel = getModelSource(sEnv);
 		DataStream<Tuple2<double[], Double>> data = getDataSource(sEnv);
 
-		mlIterateWithKeyedPS(
+		mlIterateWithBroadcastedPS(
 			initialModel,
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
@@ -65,23 +71,11 @@ public class Test {
 		TypeInformation<D> dataType) {
 
 		DataStream<ModelOrFeedback<M, F>> modelOrFeedback =
-			initialModel.flatMap(new FeedbackHeadFlatMap<>());
-		SingleOutputStreamOperator<Tuple3<Long, String[], D>> coDataWithUUID =
-			coData.flatMap(new DataUUIDAssigner<>(coDataKeySelector));
-		DataStream<Tuple2<Long, String>> coDataKey = coDataWithUUID.flatMap(new FlattenDataKey<>());
-
-		SingleOutputStreamOperator<Tuple3<Long, String, M>> joinResult =
-			modelOrFeedback
-				.keyBy(new ModelOrFeedbackKeySelector<>(modelKeySelector, feedbackKeySelector))
-				.connect(coDataKey.keyBy(f -> f.f1))
-				.flatMap(new PsCoProcessor<>(merger,
-					new ModelOrFeedbackKeySelector<>(modelKeySelector, feedbackKeySelector),
-					modelType)).returns(new TupleTypeInfo<>(BasicTypeInfo.LONG_TYPE_INFO,
-				BasicTypeInfo.STRING_TYPE_INFO, modelType));
-
+			initialModel.broadcast().flatMap(new FeedbackHeadFlatMap<>());
 		DataStream<Tuple2<D, Map<String, M>>> fullData =
-			coDataWithUUID.keyBy(f -> f.f0).connect(joinResult.keyBy(f -> f.f0))
-				.flatMap(new MergeDataFlatMap<>(dataType, modelType));
+			modelOrFeedback.forward().connect(coData).flatMap(new BroadcastPsCoProcessor<>(merger,
+				new ModelOrFeedbackKeySelector<>(modelKeySelector, feedbackKeySelector),
+				coDataKeySelector));
 
 		compute.transform(fullData).broadcast().flatMap(new FeedbackTailFlatMap<>());
 	}
@@ -99,18 +93,19 @@ public class Test {
 
 		DataStream<ModelOrFeedback<M, F>> modelOrFeedback =
 			initialModel.flatMap(new FeedbackHeadFlatMap<>());
-		SingleOutputStreamOperator<Tuple3<Long, String[], D>> coDataWithUUID =
+		DataStream<Tuple3<Long, String[], D>> coDataWithUUID =
 			coData.flatMap(new DataUUIDAssigner<>(coDataKeySelector));
 		DataStream<Tuple2<Long, String>> coDataKey = coDataWithUUID.flatMap(new FlattenDataKey<>());
 
-		SingleOutputStreamOperator<Tuple3<Long, String, M>> joinResult =
+		DataStream<Tuple3<Long, String, M>> joinResult =
 			modelOrFeedback
 				.keyBy(new ModelOrFeedbackKeySelector<>(modelKeySelector, feedbackKeySelector))
 				.connect(coDataKey.keyBy(f -> f.f1))
-				.flatMap(new PsCoProcessor<>(merger,
+				.flatMap(new KeyedPsCoProcessor<>(merger,
 					new ModelOrFeedbackKeySelector<>(modelKeySelector, feedbackKeySelector),
-					modelType)).returns(new TupleTypeInfo<>(BasicTypeInfo.LONG_TYPE_INFO,
-				BasicTypeInfo.STRING_TYPE_INFO, modelType));
+					modelType)).returns(
+				new TupleTypeInfo<>(BasicTypeInfo.LONG_TYPE_INFO, BasicTypeInfo.STRING_TYPE_INFO,
+					modelType));
 
 		DataStream<Tuple2<D, Map<String, M>>> fullData =
 			coDataWithUUID.keyBy(f -> f.f0).connect(joinResult.keyBy(f -> f.f0))

@@ -1,4 +1,4 @@
-package org.apache.flink.ds.iter;
+package org.apache.flink.ds.iter.keyed;
 
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;

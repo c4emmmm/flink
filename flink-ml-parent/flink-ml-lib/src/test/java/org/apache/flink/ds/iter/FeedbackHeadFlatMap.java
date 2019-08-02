@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
 public class FeedbackHeadFlatMap<M, F>
 	extends RichFlatMapFunction<M, ModelOrFeedback<M, F>> {
 	public static Map<Integer, LinkedBlockingQueue> queueMap = new HashMap<>();
-	public static ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 100, Long.MAX_VALUE,
+	public static ThreadPoolExecutor executor = new ThreadPoolExecutor(3, 100, Long.MAX_VALUE,
 		TimeUnit.MINUTES, new LinkedBlockingQueue<>());
 
 	public Boolean running = false;
@@ -38,7 +38,6 @@ public class FeedbackHeadFlatMap<M, F>
 
 	@Override
 	public void flatMap(M value, Collector<ModelOrFeedback<M, F>> out) throws Exception {
-		System.out.println("receive init model:" + value);
 		if (!running) {
 			synchronized (lock) {
 				if (!running) {
@@ -48,7 +47,6 @@ public class FeedbackHeadFlatMap<M, F>
 				}
 			}
 		}
-		System.out.println("can init model:" + value);
 		out.collect(new ModelOrFeedback<>(true, value, null));
 	}
 
@@ -68,7 +66,6 @@ public class FeedbackHeadFlatMap<M, F>
 				try {
 					F feedback =
 						(F) getWorkerQueue(workerId).take();
-					System.out.println("receive feedback:" + feedback);
 					out.collect(new ModelOrFeedback<>(false, null, feedback));
 				} catch (InterruptedException e) {
 					throw new RuntimeException(e);

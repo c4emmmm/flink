@@ -1,4 +1,4 @@
-package org.apache.flink.ds.iter;
+package org.apache.flink.ds.iter.keyed;
 
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.java.tuple.Tuple2;

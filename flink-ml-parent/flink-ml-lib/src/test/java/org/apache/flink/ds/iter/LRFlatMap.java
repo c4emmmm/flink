@@ -23,6 +23,10 @@ public class LRFlatMap extends
 		Collector<Tuple2<Integer, Double>> out) throws Exception {
 		double[] weights = new double[value.f0.f0.length + 1];
 		for (Tuple2<Integer, Double> m : value.f1.values()) {
+			if (m == null) {
+				//model is not ready
+				return;
+			}
 			weights[m.f0] = m.f1;
 		}
 		System.out.println("model:" + new Gson().toJson(weights));
