@@ -12,8 +12,6 @@ import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
 import org.apache.flink.util.Collector;
 
-import com.google.gson.Gson;
-
 import java.util.HashMap;
 import java.util.Map;
 
@@ -54,7 +52,6 @@ public class BroadcastPsCoProcessor<D, M, F> extends
 			state.put(modelKeySelector.getKey(value),
 				merger.merge(state.get(modelKeySelector.getKey(value)), value.feedback));
 		}
-		System.out.println(workerId + " curModel:" + new Gson().toJson(state));
 	}
 
 	@Override
