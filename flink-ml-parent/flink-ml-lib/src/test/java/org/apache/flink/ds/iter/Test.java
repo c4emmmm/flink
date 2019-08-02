@@ -117,7 +117,7 @@ public class Test {
 			@Override
 			public void run(SourceContext<Tuple2<double[], Double>> ctx) throws Exception {
 				while (true) {
-					Thread.sleep(20);
+					Thread.sleep(10);
 					double[] data = new double[]{Math.random(), Math.random(), Math.random()};
 					double label = data[0] * 11.1 + data[1] * 17.3 + data[2] * 7.7 + 23;
 					ctx.collect(new Tuple2<>(data, label));

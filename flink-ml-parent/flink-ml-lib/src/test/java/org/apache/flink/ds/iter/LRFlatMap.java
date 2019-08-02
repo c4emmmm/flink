@@ -18,7 +18,8 @@ public class LRFlatMap extends
 	RichFlatMapFunction<Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>>,
 		Tuple2<Integer, Double>> {
 
-	int iter = 30;
+	int iter = 10;
+	int count = 0;
 
 	@Override
 	public void flatMap(Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>> value,
@@ -38,15 +39,34 @@ public class LRFlatMap extends
 		RealVector w = new ArrayRealVector(v.f1);
 
 		iter++;
-		double learningRate = 0.1 / Math.sqrt(iter / 30);
+		double learningRate = 0.1 / Math.sqrt(iter / 10);
 		double label = v.f2;
 		double pred = data.dotProduct(w);
 		double diff = pred - label;
 		double[] grad = data.mapMultiply(diff).mapMultiply(-learningRate).toArray();
 
-		System.out.println("iter:" + iter + ", pred:" + String.format("%.2f", pred) + ", label: " +
-			String.format("%.2f", label) + ", diff:" + String.format("%.2f", diff) +
-			", model:" + new Gson().toJson(weights));
+		//		System.out.println("iter:" + iter + ", pred:" + String.format("%.2f", pred) + ", label: " +
+		//			String.format("%.2f", label) + ", diff:" + String.format("%.2f", diff) +
+		//			", model:" + new Gson().toJson(weights));
+
+		if (count < 1000) {
+			if (iter % 100 == 0) {
+				System.out
+					.println("curIter:" + iter + ", cur count=" + count + ", cur diff=" + diff);
+			}
+			if (iter % 1000 == 0) {
+				System.out.println("cur model=" + new Gson().toJson(weights));
+			}
+			if (Math.abs(diff) < 0.02) {
+				count++;
+			} else {
+				count = count <= 1 ? 0 : count - 1;
+			}
+			if (count == 1000) {
+				System.out
+					.println("iter=" + iter + ", seems converge:" + new Gson().toJson(weights));
+			}
+		}
 
 		for (int i = 0; i < grad.length; i++) {
 			out.collect(new Tuple2<>(i, grad[i]));
