@@ -38,32 +38,29 @@ public class Test {
 				}
 				return keys;
 			},
+			(StreamTransformer<
+				Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>>,
+				Tuple2<Integer, Double>>) (in) -> in.flatMap(new LRFlatMap()),
 			(PsMerger<Tuple2<Integer, Double>, Tuple2<Integer, Double>>) (m, f) -> {
 				assert (m.f0.equals(f.f0));
 				m.f1 += f.f1;
 				return m;
 			},
-			(StreamTransformer<
-				Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>>,
-				Tuple2<Integer, Double>>) (in) -> in.flatMap(new LRFlatMap()),
-			(StreamTransformer<Tuple2<Integer, Double>, Tuple2<Integer, Double>>) in -> in,
 			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
 			new TupleTypeInfo<>(PrimitiveArrayTypeInfo.DOUBLE_PRIMITIVE_ARRAY_TYPE_INFO,
 				BasicTypeInfo.DOUBLE_TYPE_INFO)
 		);
-
 		sEnv.execute();
 	}
 
-	private <M, D, F, R> void mlIterateWithKeyedPS(
+	private <M, D, F> void mlIterateWithBroadcastedPS(
 		DataStream<M> initialModel,
 		KeySelector<M, String> modelKeySelector,
 		KeySelector<F, String> feedbackKeySelector,
 		DataStream<D> coData,
 		KeySelector<D, String[]> coDataKeySelector,
+		StreamTransformer<Tuple2<D, Map<String, M>>, F> compute,
 		PsMerger<M, F> merger,
-		StreamTransformer<Tuple2<D, Map<String, M>>, R> compute,
-		StreamTransformer<R, F> furtherProcess,
 		TypeInformation<M> modelType,
 		TypeInformation<D> dataType) {
 
@@ -86,9 +83,40 @@ public class Test {
 			coDataWithUUID.keyBy(f -> f.f0).connect(joinResult.keyBy(f -> f.f0))
 				.flatMap(new MergeDataFlatMap<>(dataType, modelType));
 
-		DataStream<R> feedback = compute.transform(fullData);
+		compute.transform(fullData).broadcast().flatMap(new FeedbackTailFlatMap<>());
+	}
 
-		furtherProcess.transform(feedback).flatMap(new FeedbackTailFlatMap<>());
+	private <M, D, F> void mlIterateWithKeyedPS(
+		DataStream<M> initialModel,
+		KeySelector<M, String> modelKeySelector,
+		KeySelector<F, String> feedbackKeySelector,
+		DataStream<D> coData,
+		KeySelector<D, String[]> coDataKeySelector,
+		StreamTransformer<Tuple2<D, Map<String, M>>, F> compute,
+		PsMerger<M, F> merger,
+		TypeInformation<M> modelType,
+		TypeInformation<D> dataType) {
+
+		DataStream<ModelOrFeedback<M, F>> modelOrFeedback =
+			initialModel.flatMap(new FeedbackHeadFlatMap<>());
+		SingleOutputStreamOperator<Tuple3<Long, String[], D>> coDataWithUUID =
+			coData.flatMap(new DataUUIDAssigner<>(coDataKeySelector));
+		DataStream<Tuple2<Long, String>> coDataKey = coDataWithUUID.flatMap(new FlattenDataKey<>());
+
+		SingleOutputStreamOperator<Tuple3<Long, String, M>> joinResult =
+			modelOrFeedback
+				.keyBy(new ModelOrFeedbackKeySelector<>(modelKeySelector, feedbackKeySelector))
+				.connect(coDataKey.keyBy(f -> f.f1))
+				.flatMap(new PsCoProcessor<>(merger,
+					new ModelOrFeedbackKeySelector<>(modelKeySelector, feedbackKeySelector),
+					modelType)).returns(new TupleTypeInfo<>(BasicTypeInfo.LONG_TYPE_INFO,
+				BasicTypeInfo.STRING_TYPE_INFO, modelType));
+
+		DataStream<Tuple2<D, Map<String, M>>> fullData =
+			coDataWithUUID.keyBy(f -> f.f0).connect(joinResult.keyBy(f -> f.f0))
+				.flatMap(new MergeDataFlatMap<>(dataType, modelType));
+
+		compute.transform(fullData).flatMap(new FeedbackTailFlatMap<>());
 	}
 
 	private DataStream<Tuple2<double[], Double>> getDataSource(StreamExecutionEnvironment sEnv) {

@@ -1,8 +1,11 @@
 package org.apache.flink.ds.iter;
 
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.util.Collector;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -13,13 +16,25 @@ import java.util.concurrent.TimeUnit;
  */
 public class FeedbackHeadFlatMap<M, F>
 	extends RichFlatMapFunction<M, ModelOrFeedback<M, F>> {
-	public static LinkedBlockingQueue queue = new LinkedBlockingQueue();
+	public static Map<Integer, LinkedBlockingQueue> queueMap = new HashMap<>();
+	public static ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 100, Long.MAX_VALUE,
+		TimeUnit.MINUTES, new LinkedBlockingQueue<>());
+
 	public Boolean running = false;
 	public CollectThread thread;
 	public final Boolean lock = new Boolean(true);
-	public static ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, Long.MAX_VALUE,
-		TimeUnit.MINUTES,
-		new LinkedBlockingQueue<>());
+
+	public int workerId = -1;
+
+	@Override
+	public void open(Configuration parameters) throws Exception {
+		super.open(parameters);
+		workerId = getRuntimeContext().getIndexOfThisSubtask();
+	}
+
+	public static LinkedBlockingQueue getWorkerQueue(int workerId) {
+		return queueMap.computeIfAbsent(workerId, k -> new LinkedBlockingQueue());
+	}
 
 	@Override
 	public void flatMap(M value, Collector<ModelOrFeedback<M, F>> out) throws Exception {
@@ -51,7 +66,8 @@ public class FeedbackHeadFlatMap<M, F>
 		public void run() {
 			while (true) {
 				try {
-					F feedback = (F) queue.take();
+					F feedback =
+						(F) getWorkerQueue(workerId).take();
 					System.out.println("receive feedback:" + feedback);
 					out.collect(new ModelOrFeedback<>(false, null, feedback));
 				} catch (InterruptedException e) {
