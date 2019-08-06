@@ -1,7 +1,6 @@
 package org.apache.flink.ds.iter;
 
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
-import org.apache.flink.api.common.typeinfo.PrimitiveArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -15,6 +14,8 @@ import org.apache.flink.ds.iter.keyed.MergeDataFlatMap;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
+
+import javax.annotation.Nullable;
 
 import java.util.Map;
 
@@ -49,12 +50,86 @@ public class Test {
 				assert (m.f0.equals(f.f0));
 				m.f1 += f.f1;
 				return m;
-			},
-			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
-			new TupleTypeInfo<>(PrimitiveArrayTypeInfo.DOUBLE_PRIMITIVE_ARRAY_TYPE_INFO,
-				BasicTypeInfo.DOUBLE_TYPE_INFO)
+			}
+			//			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
+			//			new TupleTypeInfo<>(PrimitiveArrayTypeInfo.DOUBLE_PRIMITIVE_ARRAY_TYPE_INFO,
+			//				BasicTypeInfo.DOUBLE_TYPE_INFO)
 		);
 		sEnv.execute();
+	}
+
+	private <M, D, F, R> DataStream<R> inferWithBroadcastedPS(
+		@Nullable DataStream<M> initialModel,
+		@Nullable KeySelector<M, String> modelKeySelector,
+		DataStream<F> modelUpdateStream,
+		KeySelector<F, String> modelUpdateKeySelector,
+		DataStream<D> sampleData,
+		KeySelector<D, String[]> sampleDataKeySelector,
+		StreamTransformer<Tuple2<D, Map<String, M>>, R> infer,
+		PsMerger<M, F> merger) {
+
+		DataStream<ModelOrFeedback<M, F>> wrappedFeedback =
+			modelUpdateStream.flatMap(new FeedbackWrapper<>());
+		DataStream<ModelOrFeedback<M, F>> modelOrFeedback;
+		if (initialModel != null) {
+			DataStream<ModelOrFeedback<M, F>> wrappedModel =
+				initialModel.flatMap(new ModelWrapper<>());
+			modelOrFeedback = wrappedModel.union(wrappedFeedback);
+		} else {
+			modelOrFeedback = wrappedFeedback;
+		}
+
+		DataStream<Tuple2<D, Map<String, M>>> fullData =
+			modelOrFeedback.broadcast().connect(sampleData)
+				.flatMap(new BroadcastPsCoProcessor<>(merger,
+					new ModelOrFeedbackKeySelector<>(modelKeySelector, modelUpdateKeySelector),
+					sampleDataKeySelector));
+
+		return infer.transform(fullData);
+	}
+
+	private <M, D, F, R> DataStream<R> inferWithKeyedPS(
+		@Nullable DataStream<M> initialModel,
+		@Nullable KeySelector<M, String> modelKeySelector,
+		DataStream<F> modelUpdateStream,
+		KeySelector<F, String> modelUpdateKeySelector,
+		DataStream<D> sampleData,
+		KeySelector<D, String[]> sampleDataKeySelector,
+		StreamTransformer<Tuple2<D, Map<String, M>>, R> infer,
+		PsMerger<M, F> merger,
+		TypeInformation<M> modelType,
+		TypeInformation<D> dataType) {
+
+		DataStream<ModelOrFeedback<M, F>> wrappedFeedback =
+			modelUpdateStream.flatMap(new FeedbackWrapper<>());
+		DataStream<ModelOrFeedback<M, F>> modelOrFeedback;
+		if (initialModel != null) {
+			DataStream<ModelOrFeedback<M, F>> wrappedModel =
+				initialModel.flatMap(new ModelWrapper<>());
+			modelOrFeedback = wrappedModel.union(wrappedFeedback);
+		} else {
+			modelOrFeedback = wrappedFeedback;
+		}
+
+		DataStream<Tuple3<Long, String[], D>> coDataWithUUID =
+			sampleData.flatMap(new DataUUIDAssigner<>(sampleDataKeySelector));
+		DataStream<Tuple2<Long, String>> coDataKey = coDataWithUUID.flatMap(new FlattenDataKey<>());
+
+		DataStream<Tuple3<Long, String, M>> joinResult =
+			modelOrFeedback
+				.keyBy(new ModelOrFeedbackKeySelector<>(modelKeySelector, modelUpdateKeySelector))
+				.connect(coDataKey.keyBy(f -> f.f1))
+				.flatMap(new KeyedPsCoProcessor<>(merger,
+					new ModelOrFeedbackKeySelector<>(modelKeySelector, modelUpdateKeySelector),
+					modelType)).returns(
+				new TupleTypeInfo<>(BasicTypeInfo.LONG_TYPE_INFO, BasicTypeInfo.STRING_TYPE_INFO,
+					modelType));
+
+		DataStream<Tuple2<D, Map<String, M>>> fullData =
+			coDataWithUUID.keyBy(f -> f.f0).connect(joinResult.keyBy(f -> f.f0))
+				.flatMap(new MergeDataFlatMap<>(dataType, modelType));
+
+		return infer.transform(fullData);
 	}
 
 	private <M, D, F> void mlIterateWithBroadcastedPS(
@@ -64,18 +139,18 @@ public class Test {
 		DataStream<D> coData,
 		KeySelector<D, String[]> coDataKeySelector,
 		StreamTransformer<Tuple2<D, Map<String, M>>, F> compute,
-		PsMerger<M, F> merger,
-		TypeInformation<M> modelType,
-		TypeInformation<D> dataType) {
+		PsMerger<M, F> merger) {
 
 		DataStream<ModelOrFeedback<M, F>> modelOrFeedback =
-			initialModel.broadcast().flatMap(new FeedbackHeadFlatMap<>());
+			initialModel.flatMap(new ModelWrapper<M, F>()).broadcast()
+				.flatMap(new FeedbackHeadFlatMap<>());
 		DataStream<Tuple2<D, Map<String, M>>> fullData =
-			modelOrFeedback.forward().connect(coData).flatMap(new BroadcastPsCoProcessor<>(merger,
+			modelOrFeedback.connect(coData).flatMap(new BroadcastPsCoProcessor<>(merger,
 				new ModelOrFeedbackKeySelector<>(modelKeySelector, feedbackKeySelector),
 				coDataKeySelector));
 
-		compute.transform(fullData).broadcast().flatMap(new FeedbackTailFlatMap<>());
+		compute.transform(fullData).flatMap(new FeedbackWrapper<M, F>()).broadcast()
+			.flatMap(new FeedbackTailFlatMap<>());
 	}
 
 	private <M, D, F> void mlIterateWithKeyedPS(
@@ -90,7 +165,7 @@ public class Test {
 		TypeInformation<D> dataType) {
 
 		DataStream<ModelOrFeedback<M, F>> modelOrFeedback =
-			initialModel.flatMap(new FeedbackHeadFlatMap<>());
+			initialModel.flatMap(new ModelWrapper<M, F>()).flatMap(new FeedbackHeadFlatMap<>());
 		DataStream<Tuple3<Long, String[], D>> coDataWithUUID =
 			coData.flatMap(new DataUUIDAssigner<>(coDataKeySelector));
 		DataStream<Tuple2<Long, String>> coDataKey = coDataWithUUID.flatMap(new FlattenDataKey<>());
@@ -109,7 +184,8 @@ public class Test {
 			coDataWithUUID.keyBy(f -> f.f0).connect(joinResult.keyBy(f -> f.f0))
 				.flatMap(new MergeDataFlatMap<>(dataType, modelType));
 
-		compute.transform(fullData).flatMap(new FeedbackTailFlatMap<>());
+		compute.transform(fullData).flatMap(new FeedbackWrapper<M, F>())
+			.flatMap(new FeedbackTailFlatMap<>());
 	}
 
 	private DataStream<Tuple2<double[], Double>> getDataSource(StreamExecutionEnvironment sEnv) {

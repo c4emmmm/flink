@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit;
  * @param <F>
  */
 public class FeedbackHeadFlatMap<M, F>
-	extends RichFlatMapFunction<M, ModelOrFeedback<M, F>> {
+	extends RichFlatMapFunction<ModelOrFeedback<M, F>, ModelOrFeedback<M, F>> {
 	public static Map<Integer, LinkedBlockingQueue> queueMap = new HashMap<>();
 	public static ThreadPoolExecutor executor = new ThreadPoolExecutor(3, 100, Long.MAX_VALUE,
 		TimeUnit.MINUTES, new LinkedBlockingQueue<>());
@@ -37,7 +37,7 @@ public class FeedbackHeadFlatMap<M, F>
 	}
 
 	@Override
-	public void flatMap(M value, Collector<ModelOrFeedback<M, F>> out) throws Exception {
+	public void flatMap(ModelOrFeedback<M, F> value, Collector<ModelOrFeedback<M, F>> out) throws Exception {
 		if (!running) {
 			synchronized (lock) {
 				if (!running) {
@@ -47,7 +47,7 @@ public class FeedbackHeadFlatMap<M, F>
 				}
 			}
 		}
-		out.collect(new ModelOrFeedback<>(true, value, null));
+		out.collect(value);
 	}
 
 	/**
