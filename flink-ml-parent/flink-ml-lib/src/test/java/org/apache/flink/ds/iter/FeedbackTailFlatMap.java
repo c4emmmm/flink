@@ -7,7 +7,7 @@ import org.apache.flink.util.Collector;
 /**
  * @param <F>
  */
-public class FeedbackTailFlatMap<M, F> extends RichFlatMapFunction<ModelOrFeedback<M, F>, Void> {
+public class FeedbackTailFlatMap<M, F> extends RichFlatMapFunction<UnifiedModelInput<M, F>, Void> {
 
 	public int workerId = -1;
 
@@ -18,7 +18,7 @@ public class FeedbackTailFlatMap<M, F> extends RichFlatMapFunction<ModelOrFeedba
 	}
 
 	@Override
-	public void flatMap(ModelOrFeedback<M, F> value, Collector<Void> out) throws Exception {
+	public void flatMap(UnifiedModelInput<M, F> value, Collector<Void> out) throws Exception {
 		FeedbackHeadFlatMap.getWorkerQueue(workerId).offer(value);
 	}
 }

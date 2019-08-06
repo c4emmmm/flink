@@ -1,15 +1,14 @@
 package org.apache.flink.ds.iter;
 
-import org.apache.flink.api.common.functions.RichFlatMapFunction;
-import org.apache.flink.util.Collector;
+import org.apache.flink.api.common.functions.MapFunction;
 
 /**
  *
  */
-public class ModelWrapper<M, F>
-	extends RichFlatMapFunction<M, ModelOrFeedback<M, F>> {
+public class ModelWrapper<M, F> implements MapFunction<M, UnifiedModelInput<M, F>> {
+
 	@Override
-	public void flatMap(M model, Collector<ModelOrFeedback<M, F>> out) throws Exception {
-		out.collect(new ModelOrFeedback<>(true, model, null));
+	public UnifiedModelInput<M, F> map(M model) throws Exception {
+		return UnifiedModelInput.wrapModel(model);
 	}
 }

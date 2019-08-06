@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit;
  * @param <F>
  */
 public class FeedbackHeadFlatMap<M, F>
-	extends RichFlatMapFunction<ModelOrFeedback<M, F>, ModelOrFeedback<M, F>> {
+	extends RichFlatMapFunction<UnifiedModelInput<M, F>, UnifiedModelInput<M, F>> {
 	public static Map<Integer, LinkedBlockingQueue> queueMap = new HashMap<>();
 	public static ThreadPoolExecutor executor = new ThreadPoolExecutor(3, 100, Long.MAX_VALUE,
 		TimeUnit.MINUTES, new LinkedBlockingQueue<>());
@@ -37,7 +37,8 @@ public class FeedbackHeadFlatMap<M, F>
 	}
 
 	@Override
-	public void flatMap(ModelOrFeedback<M, F> value, Collector<ModelOrFeedback<M, F>> out) throws Exception {
+	public void flatMap(UnifiedModelInput<M, F> value,
+		Collector<UnifiedModelInput<M, F>> out) throws Exception {
 		if (!running) {
 			synchronized (lock) {
 				if (!running) {
@@ -53,10 +54,11 @@ public class FeedbackHeadFlatMap<M, F>
 	/**
 	 *
 	 */
+	//TODO not good
 	public class CollectThread extends Thread {
-		Collector<ModelOrFeedback<M, F>> out;
+		Collector<UnifiedModelInput<M, F>> out;
 
-		public CollectThread(Collector<ModelOrFeedback<M, F>> out) {
+		public CollectThread(Collector<UnifiedModelInput<M, F>> out) {
 			this.out = out;
 		}
 
@@ -64,9 +66,7 @@ public class FeedbackHeadFlatMap<M, F>
 		public void run() {
 			while (true) {
 				try {
-					F feedback =
-						(F) getWorkerQueue(workerId).take();
-					out.collect(new ModelOrFeedback<>(false, null, feedback));
+					out.collect((UnifiedModelInput<M, F>) getWorkerQueue(workerId).take());
 				} catch (InterruptedException e) {
 					throw new RuntimeException(e);
 				}

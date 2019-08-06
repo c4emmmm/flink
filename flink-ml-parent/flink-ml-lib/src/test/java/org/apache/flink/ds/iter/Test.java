@@ -1,17 +1,21 @@
 package org.apache.flink.ds.iter;
 
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
+import org.apache.flink.api.common.typeinfo.PrimitiveArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.ds.iter.broadcast.BroadcastPsCoProcessor;
-import org.apache.flink.ds.iter.keyed.DataUUIDAssigner;
+import org.apache.flink.ds.iter.keyed.AssignDataUUIDAndExtractKeys;
 import org.apache.flink.ds.iter.keyed.FlattenDataKey;
 import org.apache.flink.ds.iter.keyed.KeyedPsCoProcessor;
 import org.apache.flink.ds.iter.keyed.MergeDataFlatMap;
+import org.apache.flink.ds.iter.test.lr.LRFlatMap;
+import org.apache.flink.ds.iter.test.lr.LrConverge;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 
@@ -31,10 +35,15 @@ public class Test {
 		DataStream<Tuple2<Integer, Double>> initialModel = getModelSource(sEnv);
 		DataStream<Tuple2<double[], Double>> data = getDataSource(sEnv);
 
-		mlIterateWithBroadcastedPS(
+		mlIterateWithBroadcastPS(
 			initialModel,
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
+			(PsMerger<Tuple2<Integer, Double>, Tuple2<Integer, Double>>) (m, f) -> {
+				assert (m.f0.equals(f.f0));
+				m.f1 += f.f1;
+				return m;
+			},
 			data,
 			(KeySelector<Tuple2<double[], Double>, String[]>) value -> {
 				String[] keys = new String[value.f0.length + 1];
@@ -46,148 +55,242 @@ public class Test {
 			(StreamTransformer<
 				Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>>,
 				Tuple2<Integer, Double>>) (in) -> in.flatMap(new LRFlatMap()),
-			(PsMerger<Tuple2<Integer, Double>, Tuple2<Integer, Double>>) (m, f) -> {
-				assert (m.f0.equals(f.f0));
-				m.f1 += f.f1;
-				return m;
-			}
-			//			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
-			//			new TupleTypeInfo<>(PrimitiveArrayTypeInfo.DOUBLE_PRIMITIVE_ARRAY_TYPE_INFO,
-			//				BasicTypeInfo.DOUBLE_TYPE_INFO)
+			//typically use an aggregator with only 1 parallelism to output
+			(StreamTransformer<Tuple2<Integer, Double>, Boolean>) u -> u.flatMap(new LrConverge())
+				.setParallelism(1),
+			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
+			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
+			new TupleTypeInfo<>(PrimitiveArrayTypeInfo.DOUBLE_PRIMITIVE_ARRAY_TYPE_INFO,
+				BasicTypeInfo.DOUBLE_TYPE_INFO),
+			3
 		);
 		sEnv.execute();
 	}
 
-	private <M, D, F, R> DataStream<R> inferWithBroadcastedPS(
+	private <M, U, D, R> DataStream<R> inferWithBroadcastPS(
 		@Nullable DataStream<M> initialModel,
 		@Nullable KeySelector<M, String> modelKeySelector,
-		DataStream<F> modelUpdateStream,
-		KeySelector<F, String> modelUpdateKeySelector,
+		DataStream<U> updateStream,
+		KeySelector<U, String> updateKeySelector,
+		PsMerger<M, U> merger,
 		DataStream<D> sampleData,
 		KeySelector<D, String[]> sampleDataKeySelector,
 		StreamTransformer<Tuple2<D, Map<String, M>>, R> infer,
-		PsMerger<M, F> merger) {
+		TypeInformation<M> modelType,
+		TypeInformation<U> updateType,
+		TypeInformation<D> dataType,
+		int psParallelism) {
 
-		DataStream<ModelOrFeedback<M, F>> wrappedFeedback =
-			modelUpdateStream.flatMap(new FeedbackWrapper<>());
-		DataStream<ModelOrFeedback<M, F>> modelOrFeedback;
-		if (initialModel != null) {
-			DataStream<ModelOrFeedback<M, F>> wrappedModel =
-				initialModel.flatMap(new ModelWrapper<>());
-			modelOrFeedback = wrappedModel.union(wrappedFeedback);
-		} else {
-			modelOrFeedback = wrappedFeedback;
-		}
+		DataStream<UnifiedModelInput<M, U>> unifiedModelInput =
+			unifyInitialModelAndModelUpdate(initialModel, updateStream, modelType, updateType);
 
 		DataStream<Tuple2<D, Map<String, M>>> fullData =
-			modelOrFeedback.broadcast().connect(sampleData)
-				.flatMap(new BroadcastPsCoProcessor<>(merger,
-					new ModelOrFeedbackKeySelector<>(modelKeySelector, modelUpdateKeySelector),
-					sampleDataKeySelector));
+			updateOrJoinWithBroadcastPS(
+				unifiedModelInput, modelKeySelector, updateKeySelector, merger,
+				sampleData, sampleDataKeySelector, psParallelism);
 
 		return infer.transform(fullData);
 	}
 
-	private <M, D, F, R> DataStream<R> inferWithKeyedPS(
+	private <M, U, D, R> DataStream<R> inferWithKeyedPS(
 		@Nullable DataStream<M> initialModel,
 		@Nullable KeySelector<M, String> modelKeySelector,
-		DataStream<F> modelUpdateStream,
-		KeySelector<F, String> modelUpdateKeySelector,
+		DataStream<U> updateStream,
+		KeySelector<U, String> updateKeySelector,
+		PsMerger<M, U> merger,
 		DataStream<D> sampleData,
 		KeySelector<D, String[]> sampleDataKeySelector,
 		StreamTransformer<Tuple2<D, Map<String, M>>, R> infer,
-		PsMerger<M, F> merger,
 		TypeInformation<M> modelType,
-		TypeInformation<D> dataType) {
+		TypeInformation<U> updateType,
+		TypeInformation<D> dataType,
+		int psParallelism) {
 
-		DataStream<ModelOrFeedback<M, F>> wrappedFeedback =
-			modelUpdateStream.flatMap(new FeedbackWrapper<>());
-		DataStream<ModelOrFeedback<M, F>> modelOrFeedback;
-		if (initialModel != null) {
-			DataStream<ModelOrFeedback<M, F>> wrappedModel =
-				initialModel.flatMap(new ModelWrapper<>());
-			modelOrFeedback = wrappedModel.union(wrappedFeedback);
-		} else {
-			modelOrFeedback = wrappedFeedback;
-		}
+		DataStream<UnifiedModelInput<M, U>> unifiedModelInput =
+			unifyInitialModelAndModelUpdate(initialModel, updateStream, modelType, updateType);
 
-		DataStream<Tuple3<Long, String[], D>> coDataWithUUID =
-			sampleData.flatMap(new DataUUIDAssigner<>(sampleDataKeySelector));
-		DataStream<Tuple2<Long, String>> coDataKey = coDataWithUUID.flatMap(new FlattenDataKey<>());
+		Tuple2<DataStream<Tuple2<D, Map<String, M>>>,
+			SingleOutputStreamOperator<Tuple3<Long, String, M>>> fullDataAndPsOperator =
+			updateOrJoinWithKeyedPS(
+				unifiedModelInput, modelKeySelector, updateKeySelector, merger,
+				sampleData, sampleDataKeySelector, modelType, dataType, psParallelism);
 
-		DataStream<Tuple3<Long, String, M>> joinResult =
-			modelOrFeedback
-				.keyBy(new ModelOrFeedbackKeySelector<>(modelKeySelector, modelUpdateKeySelector))
-				.connect(coDataKey.keyBy(f -> f.f1))
-				.flatMap(new KeyedPsCoProcessor<>(merger,
-					new ModelOrFeedbackKeySelector<>(modelKeySelector, modelUpdateKeySelector),
-					modelType)).returns(
-				new TupleTypeInfo<>(BasicTypeInfo.LONG_TYPE_INFO, BasicTypeInfo.STRING_TYPE_INFO,
-					modelType));
-
-		DataStream<Tuple2<D, Map<String, M>>> fullData =
-			coDataWithUUID.keyBy(f -> f.f0).connect(joinResult.keyBy(f -> f.f0))
-				.flatMap(new MergeDataFlatMap<>(dataType, modelType));
+		DataStream<Tuple2<D, Map<String, M>>> fullData = fullDataAndPsOperator.f0;
 
 		return infer.transform(fullData);
 	}
 
-	private <M, D, F> void mlIterateWithBroadcastedPS(
+	private <M, D, U> void mlIterateWithBroadcastPS(
 		DataStream<M> initialModel,
 		KeySelector<M, String> modelKeySelector,
-		KeySelector<F, String> feedbackKeySelector,
-		DataStream<D> coData,
-		KeySelector<D, String[]> coDataKeySelector,
-		StreamTransformer<Tuple2<D, Map<String, M>>, F> compute,
-		PsMerger<M, F> merger) {
+		KeySelector<U, String> updateKeySelector,
+		PsMerger<M, U> merger,
+		DataStream<D> sampleData,
+		KeySelector<D, String[]> sampleDataKeySelector,
+		StreamTransformer<Tuple2<D, Map<String, M>>, U> train,
+		StreamTransformer<U, Boolean> judgeConverge,
+		TypeInformation<M> modelType,
+		TypeInformation<U> updateType,
+		TypeInformation<D> dataType,
+		int psParallelism) {
 
-		DataStream<ModelOrFeedback<M, F>> modelOrFeedback =
-			initialModel.flatMap(new ModelWrapper<M, F>()).broadcast()
-				.flatMap(new FeedbackHeadFlatMap<>());
-		DataStream<Tuple2<D, Map<String, M>>> fullData =
-			modelOrFeedback.connect(coData).flatMap(new BroadcastPsCoProcessor<>(merger,
-				new ModelOrFeedbackKeySelector<>(modelKeySelector, feedbackKeySelector),
-				coDataKeySelector));
+		//wrapModel
+		DataStream<UnifiedModelInput<M, U>> wrapModel =
+			initialModel.map(new ModelWrapper<M, U>())
+				.returns(UnifiedModelInput.returnType(modelType, updateType));
 
-		compute.transform(fullData).flatMap(new FeedbackWrapper<M, F>()).broadcast()
-			.flatMap(new FeedbackTailFlatMap<>());
+		//iterate start, model should be broadcast to all ps
+		DataStream<UnifiedModelInput<M, U>> unifiedModelInput =
+			wrapModel.broadcast().flatMap(new FeedbackHeadFlatMap<>());
+
+		//join data with model, merge update to model on the other side
+		SingleOutputStreamOperator<Tuple2<D, Map<String, M>>> fullData =
+			updateOrJoinWithBroadcastPS(
+				unifiedModelInput, modelKeySelector, updateKeySelector, merger,
+				sampleData, sampleDataKeySelector, psParallelism);
+
+		//get and output model, currently not supported? can be the return of this function
+		//return (DataStream<M>) fullData.getSideOutput(new OutputTag<>("model"));
+
+		//train and get the model update, update should be broadcast
+		DataStream<U> update = train.transform(fullData);
+		DataStream<UnifiedModelInput<M, U>> wrapUpdate =
+			update.map(new UpdateWrapper<M, U>())
+				.returns(UnifiedModelInput.returnType(modelType, updateType)).broadcast();
+
+		//check if converge, that's enough to send the signal only to the first ps
+		DataStream<UnifiedModelInput<M, U>> wrapConvergeSignal =
+			judgeConverge.transform(update).map(new FlagToConvergeSignal())
+				.map(new ConvergeSignalWrapper<M, U>())
+				.returns(UnifiedModelInput.returnType(modelType, updateType));
+
+		//end iteration and feedback
+		wrapUpdate.union(wrapConvergeSignal).flatMap(new FeedbackTailFlatMap<>());
 	}
 
-	private <M, D, F> void mlIterateWithKeyedPS(
+	private <M, U, D> void mlIterateWithKeyedPS(
 		DataStream<M> initialModel,
 		KeySelector<M, String> modelKeySelector,
-		KeySelector<F, String> feedbackKeySelector,
-		DataStream<D> coData,
-		KeySelector<D, String[]> coDataKeySelector,
-		StreamTransformer<Tuple2<D, Map<String, M>>, F> compute,
-		PsMerger<M, F> merger,
+		KeySelector<U, String> updateKeySelector,
+		PsMerger<M, U> merger,
+		DataStream<D> sampleData,
+		KeySelector<D, String[]> sampleDataKeySelector,
+		StreamTransformer<Tuple2<D, Map<String, M>>, U> train,
+		StreamTransformer<U, Boolean> judgeConverge,
 		TypeInformation<M> modelType,
-		TypeInformation<D> dataType) {
+		TypeInformation<U> updateType,
+		TypeInformation<D> dataType,
+		int psParallelism) {
 
-		DataStream<ModelOrFeedback<M, F>> modelOrFeedback =
-			initialModel.flatMap(new ModelWrapper<M, F>()).flatMap(new FeedbackHeadFlatMap<>());
-		DataStream<Tuple3<Long, String[], D>> coDataWithUUID =
-			coData.flatMap(new DataUUIDAssigner<>(coDataKeySelector));
-		DataStream<Tuple2<Long, String>> coDataKey = coDataWithUUID.flatMap(new FlattenDataKey<>());
+		//wrapModel
+		DataStream<UnifiedModelInput<M, U>> wrapModel = initialModel.map(new ModelWrapper<M, U>())
+			.returns(UnifiedModelInput.returnType(modelType, updateType));
 
-		DataStream<Tuple3<Long, String, M>> joinResult =
-			modelOrFeedback
-				.keyBy(new ModelOrFeedbackKeySelector<>(modelKeySelector, feedbackKeySelector))
-				.connect(coDataKey.keyBy(f -> f.f1))
+		//iterate start, feedback head union initialModel and feedback update/signal
+		DataStream<UnifiedModelInput<M, U>> unifiedModelInput =
+			wrapModel.flatMap(new FeedbackHeadFlatMap<>());
+
+		Tuple2<DataStream<Tuple2<D, Map<String, M>>>,
+			SingleOutputStreamOperator<Tuple3<Long, String, M>>> fullDataAndPsOperator =
+			updateOrJoinWithKeyedPS(
+				unifiedModelInput, modelKeySelector, updateKeySelector, merger,
+				sampleData, sampleDataKeySelector, modelType, dataType, psParallelism);
+
+		//SingleOutputStreamOperator<Tuple3<Long, String, M>> psOperator = fullDataAndPsOperator.f1;
+		//get and output model, currently not supported? can be the return of this function
+		//return (DataStream<M>) psOperator.getSideOutput(new OutputTag<>("model"));
+
+		//merge flatten data with model into original data
+		DataStream<Tuple2<D, Map<String, M>>> fullData = fullDataAndPsOperator.f0;
+
+		//train and get the model update
+		DataStream<U> update = train.transform(fullData);
+		DataStream<UnifiedModelInput<M, U>> wrapUpdate = update.map(new UpdateWrapper<M, U>())
+			.returns(UnifiedModelInput.returnType(modelType, updateType));
+
+		//check if converge, broadcast the signal to all ps
+		DataStream<UnifiedModelInput<M, U>> wrapConvergeSignal =
+			judgeConverge.transform(update).map(new FlagToConvergeSignal())
+				.flatMap(new BroadcastConvergeSignal(psParallelism))
+				.map(new ConvergeSignalWrapper<M, U>())
+				.returns(UnifiedModelInput.returnType(modelType, updateType));
+
+		//end iteration and feedback
+		wrapUpdate.union(wrapConvergeSignal).flatMap(new FeedbackTailFlatMap<>());
+	}
+
+	private <M, U, D> SingleOutputStreamOperator<Tuple2<D, Map<String, M>>> updateOrJoinWithBroadcastPS(
+		DataStream<UnifiedModelInput<M, U>> unifiedModelInput,
+		KeySelector<M, String> modelKeySelector,
+		KeySelector<U, String> updateKeySelector,
+		PsMerger<M, U> merger,
+		DataStream<D> sampleData,
+		KeySelector<D, String[]> sampleDataKeySelector,
+		int psParallelism) {
+
+		return unifiedModelInput.connect(sampleData).flatMap(new BroadcastPsCoProcessor<>(merger,
+			modelKeySelector, updateKeySelector, sampleDataKeySelector))
+			.setParallelism(psParallelism);
+	}
+
+	private <M, U, D> Tuple2<DataStream<Tuple2<D, Map<String, M>>>,
+		SingleOutputStreamOperator<Tuple3<Long, String, M>>> updateOrJoinWithKeyedPS(
+		DataStream<UnifiedModelInput<M, U>> unifiedModelInput,
+		KeySelector<M, String> modelKeySelector,
+		KeySelector<U, String> updateKeySelector,
+		PsMerger<M, U> merger,
+		DataStream<D> sampleData,
+		KeySelector<D, String[]> sampleDataKeySelector,
+		TypeInformation<M> modelType,
+		TypeInformation<D> dataType,
+		int psParallelism) {
+		//flatten data key
+		DataStream<Tuple3<Long, String[], D>> sampleDataWithUUID =
+			sampleData.flatMap(new AssignDataUUIDAndExtractKeys<>(sampleDataKeySelector));
+		DataStream<Tuple2<Long, String>> sampleDataKey =
+			sampleDataWithUUID.flatMap(new FlattenDataKey<>());
+
+		//join data with model, merge update to model on the other side
+		SingleOutputStreamOperator<Tuple3<Long, String, M>> psOperator =
+			unifiedModelInput
+				.keyBy(new UnifiedModelInputPartitionKeySelector<>(modelKeySelector,
+					updateKeySelector, psParallelism))
+				.connect(sampleDataKey.keyBy(new PartitionKeySelector<>(f -> f.f1, psParallelism)))
 				.flatMap(new KeyedPsCoProcessor<>(merger,
-					new ModelOrFeedbackKeySelector<>(modelKeySelector, feedbackKeySelector),
+					modelKeySelector, updateKeySelector,
 					modelType)).returns(
 				new TupleTypeInfo<>(BasicTypeInfo.LONG_TYPE_INFO, BasicTypeInfo.STRING_TYPE_INFO,
-					modelType));
+					modelType)).setParallelism(psParallelism);
 
+		DataStream<Tuple3<Long, String, M>> joinResult = psOperator;
+
+		//merge flatten data with model into original data
 		DataStream<Tuple2<D, Map<String, M>>> fullData =
-			coDataWithUUID.keyBy(f -> f.f0).connect(joinResult.keyBy(f -> f.f0))
+			sampleDataWithUUID.keyBy(f -> f.f0).connect(joinResult.keyBy(f -> f.f0))
 				.flatMap(new MergeDataFlatMap<>(dataType, modelType));
 
-		compute.transform(fullData).flatMap(new FeedbackWrapper<M, F>())
-			.flatMap(new FeedbackTailFlatMap<>());
+		//Model can be acquired only in psOperator, so return both fullData and psOperator
+		return new Tuple2<>(fullData, psOperator);
 	}
 
+	private <M, U> DataStream<UnifiedModelInput<M, U>> unifyInitialModelAndModelUpdate(
+		@Nullable DataStream<M> initialModel,
+		DataStream<U> updateStream,
+		TypeInformation<M> modelType,
+		TypeInformation<U> updateType) {
+		DataStream<UnifiedModelInput<M, U>> unifiedInput =
+			updateStream.map(new UpdateWrapper<M, U>())
+				.returns(UnifiedModelInput.returnType(modelType, updateType));
+		if (initialModel != null) {
+			DataStream<UnifiedModelInput<M, U>> wrappedModel =
+				initialModel.map(new ModelWrapper<M, U>())
+					.returns(UnifiedModelInput.returnType(modelType, updateType));
+			unifiedInput = unifiedInput.union(wrappedModel);
+		}
+		return unifiedInput;
+	}
+
+	//for test
 	private DataStream<Tuple2<double[], Double>> getDataSource(StreamExecutionEnvironment sEnv) {
 		return sEnv.addSource(new SourceFunction<Tuple2<double[], Double>>() {
 			@Override
@@ -207,6 +310,7 @@ public class Test {
 		});
 	}
 
+	//for test
 	private DataStream<Tuple2<Integer, Double>> getModelSource(StreamExecutionEnvironment sEnv) {
 		return sEnv.addSource(new SourceFunction<Tuple2<Integer, Double>>() {
 			@Override
@@ -222,7 +326,7 @@ public class Test {
 			public void cancel() {
 
 			}
-		});
+		}).setParallelism(1);
 	}
 
 	//	@org.junit.Test

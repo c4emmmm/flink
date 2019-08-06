@@ -1,11 +1,10 @@
-package org.apache.flink.ds.iter;
+package org.apache.flink.ds.iter.test.lr;
 
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.util.Collector;
 
-import com.google.gson.Gson;
 import org.apache.commons.math3.linear.ArrayRealVector;
 import org.apache.commons.math3.linear.RealVector;
 
@@ -19,7 +18,6 @@ public class LRFlatMap extends
 		Tuple2<Integer, Double>> {
 
 	int iter = 10;
-	int count = 0;
 
 	@Override
 	public void flatMap(Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>> value,
@@ -48,25 +46,6 @@ public class LRFlatMap extends
 		//		System.out.println("iter:" + iter + ", pred:" + String.format("%.2f", pred) + ", label: " +
 		//			String.format("%.2f", label) + ", diff:" + String.format("%.2f", diff) +
 		//			", model:" + new Gson().toJson(weights));
-
-		if (count < 1000) {
-			if (iter % 100 == 0) {
-				System.out
-					.println("curIter:" + iter + ", cur count=" + count + ", cur diff=" + diff);
-			}
-			if (iter % 1000 == 0) {
-				System.out.println("cur model=" + new Gson().toJson(weights));
-			}
-			if (Math.abs(diff) < 0.02) {
-				count++;
-			} else {
-				count = count <= 1 ? 0 : count - 1;
-			}
-			if (count == 1000) {
-				System.out
-					.println("iter=" + iter + ", seems converge:" + new Gson().toJson(weights));
-			}
-		}
 
 		for (int i = 0; i < grad.length; i++) {
 			out.collect(new Tuple2<>(i, grad[i]));

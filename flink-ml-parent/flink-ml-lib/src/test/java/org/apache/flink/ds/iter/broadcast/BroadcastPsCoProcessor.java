@@ -3,37 +3,42 @@ package org.apache.flink.ds.iter.broadcast;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.ds.iter.ModelOrFeedback;
-import org.apache.flink.ds.iter.ModelOrFeedbackKeySelector;
 import org.apache.flink.ds.iter.PsMerger;
+import org.apache.flink.ds.iter.UnifiedModelInput;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
 import org.apache.flink.util.Collector;
 
+import com.google.gson.Gson;
+
 import java.util.HashMap;
 import java.util.Map;
 
 /**
  * @param <M>
- * @param <F>
+ * @param <U>
  */
-public class BroadcastPsCoProcessor<D, M, F> extends
-	RichCoFlatMapFunction<ModelOrFeedback<M, F>, D, Tuple2<D, Map<String, M>>> implements
+public class BroadcastPsCoProcessor<D, M, U> extends
+	RichCoFlatMapFunction<UnifiedModelInput<M, U>, D, Tuple2<D, Map<String, M>>> implements
 	CheckpointedFunction {
-	private PsMerger<M, F> merger;
-	private ModelOrFeedbackKeySelector<M, F> modelKeySelector;
+	private PsMerger<M, U> merger;
+	private KeySelector<M, String> modelKeySelector;
+	private KeySelector<U, String> updateKeySelector;
 	private KeySelector<D, String[]> dataKeySelector;
 
 	private Map<String, M> state = new HashMap<>();
+
 	private int workerId = -1;
 
-	public BroadcastPsCoProcessor(PsMerger<M, F> merger,
-		ModelOrFeedbackKeySelector<M, F> modelKeySelector,
+	public BroadcastPsCoProcessor(PsMerger<M, U> merger,
+		KeySelector<M, String> modelKeySelector,
+		KeySelector<U, String> updateKeySelector,
 		KeySelector<D, String[]> dataKeySelector) {
 		this.merger = merger;
 		this.modelKeySelector = modelKeySelector;
+		this.updateKeySelector = updateKeySelector;
 		this.dataKeySelector = dataKeySelector;
 	}
 
@@ -44,15 +49,27 @@ public class BroadcastPsCoProcessor<D, M, F> extends
 	}
 
 	@Override
-	public void flatMap1(ModelOrFeedback<M, F> value,
+	public void flatMap1(UnifiedModelInput<M, U> value,
 		Collector<Tuple2<D, Map<String, M>>> out) throws Exception {
 		if (value.isModel) {
-			state.put(modelKeySelector.getKey(value), value.model);
+			state.put(modelKeySelector.getKey(value.model), value.model);
+			System.out.println("ps" + workerId + ":init model:");
+			for (Map.Entry<String, M> e : state.entrySet()) {
+				System.out.println(
+					"ps" + workerId + ":" + e.getKey() + "=" + new Gson().toJson(e.getValue()));
+			}
+		} else if (value.isUpdate) {
+			String key = updateKeySelector.getKey(value.update);
+			state.put(key, merger.merge(state.get(key), value.update));
 		} else {
-			state.put(modelKeySelector.getKey(value),
-				merger.merge(state.get(modelKeySelector.getKey(value)), value.feedback));
+			//value.isConvergeSignal
+			//iterate on model and collect all kvs as side output
+			System.out.println("ps" + workerId + ":output model:");
+			for (Map.Entry<String, M> e : state.entrySet()) {
+				System.out.println(
+					"ps" + workerId + ":" + e.getKey() + "=" + new Gson().toJson(e.getValue()));
+			}
 		}
-//		System.out.println(workerId + " curModel:" + new Gson().toJson(state));
 	}
 
 	@Override
