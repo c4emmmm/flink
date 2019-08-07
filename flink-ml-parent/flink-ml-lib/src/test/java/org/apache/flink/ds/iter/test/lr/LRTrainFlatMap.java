@@ -13,7 +13,7 @@ import java.util.Map;
 /**
  *
  */
-public class LRFlatMap extends
+public class LRTrainFlatMap extends
 	RichFlatMapFunction<Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>>,
 		Tuple2<Integer, Double>> {
 

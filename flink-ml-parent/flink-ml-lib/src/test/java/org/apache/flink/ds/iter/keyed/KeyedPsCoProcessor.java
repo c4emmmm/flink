@@ -10,8 +10,9 @@ import org.apache.flink.ds.iter.UnifiedModelInput;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
-import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
+import org.apache.flink.streaming.api.functions.co.KeyedCoProcessFunction;
 import org.apache.flink.util.Collector;
+import org.apache.flink.util.OutputTag;
 
 import com.google.gson.Gson;
 
@@ -23,8 +24,8 @@ import java.util.Map;
  * @param <U>
  */
 public class KeyedPsCoProcessor<M, U> extends
-	RichCoFlatMapFunction<UnifiedModelInput<M, U>, Tuple2<Long, String>, Tuple3<Long, String, M>> implements
-	CheckpointedFunction {
+	KeyedCoProcessFunction<Integer, UnifiedModelInput<M, U>, Tuple2<Long, String>,
+		Tuple3<Long, String, M>> implements CheckpointedFunction {
 	private PsMerger<M, U> merger;
 	private KeySelector<M, String> modelKeySelector;
 	private KeySelector<U, String> updateKeySelector;
@@ -50,8 +51,8 @@ public class KeyedPsCoProcessor<M, U> extends
 	}
 
 	@Override
-	public void flatMap1(UnifiedModelInput<M, U> value, Collector<Tuple3<Long, String, M>> out)
-		throws Exception {
+	public void processElement1(UnifiedModelInput<M, U> value,
+		Context ctx, Collector<Tuple3<Long, String, M>> out) throws Exception {
 		if (value.isModel) {
 			state.put(modelKeySelector.getKey(value.model), value.model);
 			System.out.println("ps" + workerId + ":init model:");
@@ -65,16 +66,16 @@ public class KeyedPsCoProcessor<M, U> extends
 		} else {
 			//value.isConvergeSignal
 			//iterate on model and collect all kvs as side output
-			System.out.println("ps" + workerId + ":output model:");
 			for (Map.Entry<String, M> e : state.entrySet()) {
-				System.out.println(
-					"ps" + workerId + ":" + e.getKey() + "=" + new Gson().toJson(e.getValue()));
+				ctx.output(new OutputTag<>("model", modelType), e.getValue());
 			}
+			//maybe need to output a version signal?
 		}
 	}
 
 	@Override
-	public void flatMap2(Tuple2<Long, String> key, Collector<Tuple3<Long, String, M>> out) {
+	public void processElement2(Tuple2<Long, String> key,
+		Context ctx, Collector<Tuple3<Long, String, M>> out) throws Exception {
 		if (state.containsKey(key.f1)) {
 			out.collect(new Tuple3<>(key.f0, key.f1, state.get(key.f1)));
 		}
