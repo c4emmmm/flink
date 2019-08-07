@@ -40,7 +40,15 @@ public class Test {
 		DataStream<Tuple2<Integer, Double>> initialModel = getModelSource(sEnv);
 		DataStream<Tuple2<double[], Double>> data = getDataSource(sEnv);
 
-		DataStream<Tuple2<Integer, Double>> model = mlIterateWithBroadcastPS(
+		TypeInformation<Tuple2<Integer, Double>> modelType =
+			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO,
+				BasicTypeInfo.DOUBLE_TYPE_INFO);
+		TypeInformation<Tuple2<Integer, Double>> updateType = modelType;
+		TypeInformation<Tuple2<double[], Double>> dataType =
+			new TupleTypeInfo<>(PrimitiveArrayTypeInfo.DOUBLE_PRIMITIVE_ARRAY_TYPE_INFO,
+				BasicTypeInfo.DOUBLE_TYPE_INFO);
+
+		DataStream<Tuple2<Long, Tuple2<Integer, Double>>> model = mlIterateWithBroadcastPS(
 			initialModel,
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
@@ -64,19 +72,18 @@ public class Test {
 			// output
 			(StreamTransformer<Tuple2<Integer, Double>, Boolean>) u -> u.flatMap(new LrConverge())
 				.setParallelism(1),
-			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
-			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
-			new TupleTypeInfo<>(PrimitiveArrayTypeInfo.DOUBLE_PRIMITIVE_ARRAY_TYPE_INFO,
-				BasicTypeInfo.DOUBLE_TYPE_INFO),
+			modelType,
+			updateType,
+			dataType,
 			3
 		);
 
 		//LRInferFlatMap ignores empty weights, so if initialModel==null, it will ignore all
-		// input until update reached
+		// input until update reaches
 		DataStream<Tuple3<double[], Double, Double>> result = inferWithKeyedPS(
 			initialModel,
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
-			model,
+			model.map(vm -> vm.f1).returns(modelType),
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
 			(PsMerger<Tuple2<Integer, Double>, Tuple2<Integer, Double>>) (m, f) -> f,
 			data,
@@ -90,15 +97,15 @@ public class Test {
 			(StreamTransformer<
 				Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>>,
 				Tuple3<double[], Double, Double>>) (in) -> in.flatMap(new LRInferFlatMap()),
-			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
-			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
-			new TupleTypeInfo<>(PrimitiveArrayTypeInfo.DOUBLE_PRIMITIVE_ARRAY_TYPE_INFO,
-				BasicTypeInfo.DOUBLE_TYPE_INFO),
+			modelType,
+			modelType,
+			dataType,
 			2
 		);
 
-		model.flatMap((FlatMapFunction<Tuple2<Integer, Double>, Boolean>) (value, out) ->
-			System.out.println("model=" + new Gson().toJson(value)))
+		model.flatMap(
+			(FlatMapFunction<Tuple2<Long, Tuple2<Integer, Double>>, Boolean>) (value, out) ->
+				System.out.println("model=" + new Gson().toJson(value)))
 			.returns(BasicTypeInfo.BOOLEAN_TYPE_INFO);
 
 		result
@@ -119,7 +126,7 @@ public class Test {
 		DataStream<Tuple2<Integer, Double>> initialModel = getModelSource(sEnv);
 		DataStream<Tuple2<double[], Double>> data = getDataSource(sEnv);
 
-		DataStream<Tuple2<Integer, Double>> model = mlIterateWithBroadcastPS(
+		DataStream<Tuple2<Long, Tuple2<Integer, Double>>> model = mlIterateWithBroadcastPS(
 			initialModel,
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
@@ -151,8 +158,9 @@ public class Test {
 			3
 		);
 
-		model.flatMap((FlatMapFunction<Tuple2<Integer, Double>, Boolean>) (value, out) ->
-			System.out.println("model=" + new Gson().toJson(value)))
+		model.flatMap(
+			(FlatMapFunction<Tuple2<Long, Tuple2<Integer, Double>>, Boolean>) (value, out) ->
+				System.out.println("model=" + new Gson().toJson(value)))
 			.returns(BasicTypeInfo.BOOLEAN_TYPE_INFO);
 
 		sEnv.execute();
@@ -212,7 +220,7 @@ public class Test {
 		return infer.transform(fullData);
 	}
 
-	private <M, D, U> DataStream<M> mlIterateWithBroadcastPS(
+	private <M, D, U> DataStream<Tuple2<Long, M>> mlIterateWithBroadcastPS(
 		DataStream<M> initialModel,
 		KeySelector<M, String> modelKeySelector,
 		KeySelector<U, String> updateKeySelector,
@@ -257,10 +265,11 @@ public class Test {
 		wrapUpdate.union(wrapConvergeSignal).flatMap(new FeedbackTailFlatMap<>());
 
 		//get and output model
-		return fullData.getSideOutput(new OutputTag<>("model", modelType));
+		return fullData.getSideOutput(new OutputTag<>("model",
+			new TupleTypeInfo<>(BasicTypeInfo.LONG_TYPE_INFO, modelType)));
 	}
 
-	private <M, U, D> DataStream<M> mlIterateWithKeyedPS(
+	private <M, U, D> DataStream<Tuple2<Long, M>> mlIterateWithKeyedPS(
 		DataStream<M> initialModel,
 		KeySelector<M, String> modelKeySelector,
 		KeySelector<U, String> updateKeySelector,
@@ -308,7 +317,8 @@ public class Test {
 
 		SingleOutputStreamOperator<Tuple3<Long, String, M>> psOperator = fullDataAndPsOperator.f1;
 		//get and output model
-		return psOperator.getSideOutput(new OutputTag<>("model", modelType));
+		return psOperator.getSideOutput(new OutputTag<>("model",
+			new TupleTypeInfo<>(BasicTypeInfo.LONG_TYPE_INFO, modelType)));
 	}
 
 	private <M, U, D> SingleOutputStreamOperator<Tuple2<D, Map<String, M>>> updateOrJoinWithBroadcastPS(

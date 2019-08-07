@@ -19,6 +19,7 @@ public class BroadcastConvergeSignal implements FlatMapFunction<ConvergeSignal, 
 			ConvergeSignal signal = new ConvergeSignal();
 			signal.targetWorker = i;
 			signal.isConverge = value.isConverge;
+			signal.versionId = value.versionId;
 			out.collect(signal);
 		}
 	}

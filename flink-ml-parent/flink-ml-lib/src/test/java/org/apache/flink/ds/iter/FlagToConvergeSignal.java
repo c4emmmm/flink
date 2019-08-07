@@ -11,6 +11,7 @@ public class FlagToConvergeSignal implements MapFunction<Boolean, ConvergeSignal
 		ConvergeSignal signal = new ConvergeSignal();
 		signal.isConverge = isConverge;
 		signal.targetWorker = 0;
+		signal.versionId = System.currentTimeMillis();
 		return signal;
 	}
 }

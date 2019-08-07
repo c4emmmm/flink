@@ -1,9 +1,11 @@
 package org.apache.flink.ds.iter.keyed;
 
+import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.ds.iter.PsMerger;
 import org.apache.flink.ds.iter.UnifiedModelInput;
@@ -66,8 +68,11 @@ public class KeyedPsCoProcessor<M, U> extends
 		} else {
 			//value.isConvergeSignal
 			//iterate on model and collect all kvs as side output
+			long version = value.convergeSignal.versionId;
 			for (Map.Entry<String, M> e : state.entrySet()) {
-				ctx.output(new OutputTag<>("model", modelType), e.getValue());
+				ctx.output(new OutputTag<>("model", new TupleTypeInfo<>(
+						BasicTypeInfo.LONG_TYPE_INFO, modelType)),
+					new Tuple2<>(version, e.getValue()));
 			}
 			//maybe need to output a version signal?
 		}
