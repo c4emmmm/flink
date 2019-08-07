@@ -60,7 +60,8 @@ public class Test {
 			(StreamTransformer<
 				Tuple2<Tuple2<double[], Double>, Map<String, Tuple2<Integer, Double>>>,
 				Tuple2<Integer, Double>>) (in) -> in.flatMap(new LRTrainFlatMap()),
-			//typically use an aggregator with only 1 parallelism to output
+			//typically use an aggregator on one iterator and mini-batch with only 1 parallelism to
+			// output
 			(StreamTransformer<Tuple2<Integer, Double>, Boolean>) u -> u.flatMap(new LrConverge())
 				.setParallelism(1),
 			new TupleTypeInfo<>(BasicTypeInfo.INT_TYPE_INFO, BasicTypeInfo.DOUBLE_TYPE_INFO),
