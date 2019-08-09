@@ -22,7 +22,7 @@ public class LrConverge implements FlatMapFunction<Tuple2<Integer, Double>, Bool
 				"curIter:" + inputCount + ", cur count=" + convergeCount + ", cur loss=" +
 					loss);
 		}
-		if (Math.abs(loss) < 0.001) {
+		if (Math.abs(loss) < 0.01) {
 			convergeCount++;
 		} else {
 			convergeCount = convergeCount <= 1 ? 0 : convergeCount - 1;

@@ -1,25 +1,35 @@
 package org.apache.flink.ds.iter;
 
 import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.PrimitiveArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.java.io.CsvOutputFormat;
+import org.apache.flink.api.java.io.RowCsvInputFormat;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.api.java.typeutils.RowTypeInfo;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
+import org.apache.flink.core.fs.Path;
 import org.apache.flink.ds.iter.broadcast.BroadcastPsCoProcessor;
 import org.apache.flink.ds.iter.keyed.AssignDataUUIDAndExtractKeys;
 import org.apache.flink.ds.iter.keyed.FlattenDataKey;
 import org.apache.flink.ds.iter.keyed.KeyedPsCoProcessor;
 import org.apache.flink.ds.iter.keyed.MergeDataFlatMap;
+import org.apache.flink.ds.iter.sink.CsvFileOutputFormatFactory;
+import org.apache.flink.ds.iter.sink.MultiVersionFileSink;
+import org.apache.flink.ds.iter.sink.VersionRecordProcessor;
 import org.apache.flink.ds.iter.test.lr.LRInferFlatMap;
 import org.apache.flink.ds.iter.test.lr.LRTrainFlatMap;
 import org.apache.flink.ds.iter.test.lr.LrConverge;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.source.FileProcessingMode;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
+import org.apache.flink.types.Row;
 import org.apache.flink.util.OutputTag;
 
 import com.google.gson.Gson;
@@ -78,12 +88,25 @@ public class Test {
 			3
 		);
 
+		DataStream<Tuple2<Integer, Double>> updateStream =
+			sEnv.readFile(new RowCsvInputFormat(
+					new Path("/Users/hidden/Temp/bucketing_sink/test0/"),
+					new TypeInformation<?>[]{BasicTypeInfo.INT_TYPE_INFO,
+						BasicTypeInfo.DOUBLE_TYPE_INFO}),
+				"/Users/hidden/Temp/bucketing_sink/test0/",
+				FileProcessingMode.PROCESS_CONTINUOUSLY, 10000,
+				new RowTypeInfo(BasicTypeInfo.INT_TYPE_INFO,
+					BasicTypeInfo.DOUBLE_TYPE_INFO))
+				.map((MapFunction<Row, Tuple2<Integer, Double>>) value -> new Tuple2<>(
+					(Integer) value.getField(0), (Double) value.getField(1))).returns(modelType)
+				.setParallelism(3);
 		//LRInferFlatMap ignores empty weights, so if initialModel==null, it will ignore all
 		// input until update reaches
 		DataStream<Tuple3<double[], Double, Double>> result = inferWithKeyedPS(
 			initialModel,
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
-			model.map(vm -> vm.f1).returns(modelType),
+			updateStream,
+			//			model.map(vm -> vm.f1).returns(modelType),
 			(KeySelector<Tuple2<Integer, Double>, String>) f -> String.valueOf(f.f0),
 			(PsMerger<Tuple2<Integer, Double>, Tuple2<Integer, Double>>) (m, f) -> f,
 			data,
@@ -108,11 +131,37 @@ public class Test {
 				System.out.println("model=" + new Gson().toJson(value)))
 			.returns(BasicTypeInfo.BOOLEAN_TYPE_INFO);
 
+		model.addSink(
+			new MultiVersionFileSink<>(
+				new CsvFileOutputFormatFactory<Tuple2<Integer, Double>>(
+					"/Users/hidden/Temp/bucketing_sink/test0") {
+					@Override
+					public void configure(CsvOutputFormat<Tuple2<Integer, Double>> format) {
+					}
+				},
+				new VersionRecordProcessor<Tuple2<Long, Tuple2<Integer, Double>>, Tuple2<Integer, Double>>() {
+					@Override
+					public String getVersion(Tuple2<Long, Tuple2<Integer, Double>> record) {
+						return String.valueOf(record.f0);
+					}
+
+					@Override
+					public Tuple2<Integer, Double> getData(Tuple2<Long, Tuple2<Integer, Double>> record) {
+						return record.f1;
+					}
+				})).setParallelism(3);
+
 		result
 			.flatMap((FlatMapFunction<Tuple3<double[], Double, Double>, Boolean>) (value, out) -> {
 				if (Math.random() > 0.995) {
 					System.err.println("result=" + new Gson().toJson(value));
 				}
+			})
+			.returns(BasicTypeInfo.BOOLEAN_TYPE_INFO);
+
+		updateStream
+			.flatMap((FlatMapFunction<Tuple2<Integer, Double>, Boolean>) (value, out) -> {
+				System.err.println("read model=" + new Gson().toJson(value));
 			})
 			.returns(BasicTypeInfo.BOOLEAN_TYPE_INFO);
 
