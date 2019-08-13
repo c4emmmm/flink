@@ -21,7 +21,10 @@ import org.apache.flink.ds.iter.keyed.MergeDataFlatMap;
 import org.apache.flink.ds.iter.sink.CsvFileOutputFormatFactory;
 import org.apache.flink.ds.iter.sink.MultiVersionFileSink;
 import org.apache.flink.ds.iter.sink.VersionRecordProcessor;
+import org.apache.flink.ds.iter.test.base.SingleModelIterativeAlgorithmEstimator;
+import org.apache.flink.ds.iter.test.base.SingleModelIterativeAlgorithmModel;
 import org.apache.flink.ds.iter.test.lr.LRInferFlatMap;
+import org.apache.flink.ds.iter.test.lr.LRIterativeAlgorithm;
 import org.apache.flink.ds.iter.test.lr.LRTrainFlatMap;
 import org.apache.flink.ds.iter.test.lr.LrConverge;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -42,6 +45,43 @@ import java.util.Map;
  *
  */
 public class Test {
+
+	@org.junit.Test
+	public void testAlgo() throws Exception {
+		StreamExecutionEnvironment sEnv = StreamExecutionEnvironment.createLocalEnvironment(3);
+
+		DataStream<double[]> initialModel =
+			sEnv.addSource(new SourceFunction<double[]>() {
+				@Override
+				public void run(SourceContext<double[]> ctx) throws Exception {
+					ctx.collect(new double[]{7, 5, 3, 29});
+					Thread.sleep(Long.MAX_VALUE);
+				}
+
+				@Override
+				public void cancel() {
+
+				}
+			}).setParallelism(1);
+
+		DataStream<Tuple2<double[], Double>> data = getDataSource(sEnv);
+
+		DataStream<double[]> model =
+			new SingleModelIterativeAlgorithmEstimator<>(new LRIterativeAlgorithm())
+				.fit(initialModel, data);
+
+		model
+			.flatMap((FlatMapFunction<double[], Boolean>) (value, out) -> {
+				System.err.println("result=" + new Gson().toJson(value));
+			})
+			.returns(BasicTypeInfo.BOOLEAN_TYPE_INFO);
+
+		DataStream<Tuple2<Tuple2<double[], Double>, Double>> result =
+			new SingleModelIterativeAlgorithmModel<>(new LRIterativeAlgorithm())
+				.transform(initialModel, model, data);
+
+		sEnv.execute();
+	}
 
 	@org.junit.Test
 	public void testInfer() throws Exception {
@@ -215,7 +255,7 @@ public class Test {
 		sEnv.execute();
 	}
 
-	private <M, U, D, R> DataStream<R> inferWithBroadcastPS(
+	public static <M, U, D, R> DataStream<R> inferWithBroadcastPS(
 		@Nullable DataStream<M> initialModel,
 		@Nullable KeySelector<M, String> modelKeySelector,
 		DataStream<U> updateStream,
@@ -241,7 +281,7 @@ public class Test {
 		return infer.transform(fullData);
 	}
 
-	private <M, U, D, R> DataStream<R> inferWithKeyedPS(
+	public static <M, U, D, R> DataStream<R> inferWithKeyedPS(
 		@Nullable DataStream<M> initialModel,
 		@Nullable KeySelector<M, String> modelKeySelector,
 		DataStream<U> updateStream,
@@ -269,7 +309,7 @@ public class Test {
 		return infer.transform(fullData);
 	}
 
-	private <M, D, U> DataStream<Tuple2<Long, M>> mlIterateWithBroadcastPS(
+	public static <M, D, U> DataStream<Tuple2<Long, M>> mlIterateWithBroadcastPS(
 		DataStream<M> initialModel,
 		KeySelector<M, String> modelKeySelector,
 		KeySelector<U, String> updateKeySelector,
@@ -318,7 +358,7 @@ public class Test {
 			new TupleTypeInfo<>(BasicTypeInfo.LONG_TYPE_INFO, modelType)));
 	}
 
-	private <M, U, D> DataStream<Tuple2<Long, M>> mlIterateWithKeyedPS(
+	public static <M, U, D> DataStream<Tuple2<Long, M>> mlIterateWithKeyedPS(
 		DataStream<M> initialModel,
 		KeySelector<M, String> modelKeySelector,
 		KeySelector<U, String> updateKeySelector,
@@ -370,7 +410,7 @@ public class Test {
 			new TupleTypeInfo<>(BasicTypeInfo.LONG_TYPE_INFO, modelType)));
 	}
 
-	private <M, U, D> SingleOutputStreamOperator<Tuple2<D, Map<String, M>>> updateOrJoinWithBroadcastPS(
+	public static <M, U, D> SingleOutputStreamOperator<Tuple2<D, Map<String, M>>> updateOrJoinWithBroadcastPS(
 		DataStream<UnifiedModelInput<M, U>> unifiedModelInput,
 		KeySelector<M, String> modelKeySelector,
 		KeySelector<U, String> updateKeySelector,
@@ -387,7 +427,7 @@ public class Test {
 			.setParallelism(psParallelism);
 	}
 
-	private <M, U, D> Tuple2<DataStream<Tuple2<D, Map<String, M>>>,
+	public static <M, U, D> Tuple2<DataStream<Tuple2<D, Map<String, M>>>,
 		SingleOutputStreamOperator<Tuple3<Long, String, M>>> updateOrJoinWithKeyedPS(
 		DataStream<UnifiedModelInput<M, U>> unifiedModelInput,
 		KeySelector<M, String> modelKeySelector,
@@ -427,7 +467,7 @@ public class Test {
 		return new Tuple2<>(fullData, psOperator);
 	}
 
-	private <M, U> DataStream<UnifiedModelInput<M, U>> unifyInitialModelAndModelUpdate(
+	public static <M, U> DataStream<UnifiedModelInput<M, U>> unifyInitialModelAndModelUpdate(
 		@Nullable DataStream<M> initialModel,
 		DataStream<U> updateStream,
 		TypeInformation<M> modelType,
@@ -445,7 +485,7 @@ public class Test {
 	}
 
 	//for test
-	private DataStream<Tuple2<double[], Double>> getDataSource(StreamExecutionEnvironment sEnv) {
+	public DataStream<Tuple2<double[], Double>> getDataSource(StreamExecutionEnvironment sEnv) {
 		return sEnv.addSource(new SourceFunction<Tuple2<double[], Double>>() {
 			@Override
 			public void run(SourceContext<Tuple2<double[], Double>> ctx) throws Exception {
@@ -465,7 +505,7 @@ public class Test {
 	}
 
 	//for test
-	private DataStream<Tuple2<Integer, Double>> getModelSource(StreamExecutionEnvironment sEnv) {
+	public DataStream<Tuple2<Integer, Double>> getModelSource(StreamExecutionEnvironment sEnv) {
 		return sEnv.addSource(new SourceFunction<Tuple2<Integer, Double>>() {
 			@Override
 			public void run(SourceContext<Tuple2<Integer, Double>> ctx) throws Exception {
