@@ -8,7 +8,7 @@ import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.ds.iter.PsMerger;
-import org.apache.flink.ds.iter.UnifiedModelInput;
+import org.apache.flink.ds.iter.struct.UnifiedModelInput;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;

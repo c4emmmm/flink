@@ -1,6 +1,7 @@
 package org.apache.flink.ds.iter;
 
 import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.ds.iter.struct.ConvergeSignal;
 
 /**
  *

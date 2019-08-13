@@ -1,6 +1,7 @@
-package org.apache.flink.ds.iter;
+package org.apache.flink.ds.iter.keyed;
 
 import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.ds.iter.struct.UnifiedModelInput;
 
 /**
  * @param <M>

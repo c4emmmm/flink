@@ -1,7 +1,8 @@
-package org.apache.flink.ds.iter;
+package org.apache.flink.ds.iter.iterate;
 
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.ds.iter.struct.UnifiedModelInput;
 import org.apache.flink.util.Collector;
 
 import java.util.HashMap;

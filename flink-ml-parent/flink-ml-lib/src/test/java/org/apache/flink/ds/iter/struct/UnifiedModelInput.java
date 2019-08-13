@@ -1,4 +1,4 @@
-package org.apache.flink.ds.iter;
+package org.apache.flink.ds.iter.struct;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.typeutils.PojoField;
