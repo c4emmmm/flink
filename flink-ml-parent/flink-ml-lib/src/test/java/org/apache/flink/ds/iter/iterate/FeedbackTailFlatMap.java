@@ -2,13 +2,13 @@ package org.apache.flink.ds.iter.iterate;
 
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.ds.iter.struct.UnifiedModelInput;
+import org.apache.flink.ds.iter.struct.UnifiedModelData;
 import org.apache.flink.util.Collector;
 
 /**
  * @param <F>
  */
-public class FeedbackTailFlatMap<M, F> extends RichFlatMapFunction<UnifiedModelInput<M, F>, Void> {
+public class FeedbackTailFlatMap<M, F> extends RichFlatMapFunction<UnifiedModelData<M, F>, Void> {
 
 	public int workerId = -1;
 
@@ -19,7 +19,7 @@ public class FeedbackTailFlatMap<M, F> extends RichFlatMapFunction<UnifiedModelI
 	}
 
 	@Override
-	public void flatMap(UnifiedModelInput<M, F> value, Collector<Void> out) throws Exception {
+	public void flatMap(UnifiedModelData<M, F> value, Collector<Void> out) throws Exception {
 		FeedbackHeadFlatMap.getWorkerQueue(workerId).offer(value);
 	}
 }

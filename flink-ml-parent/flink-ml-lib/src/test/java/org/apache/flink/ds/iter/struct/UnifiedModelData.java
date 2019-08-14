@@ -11,7 +11,7 @@ import java.lang.reflect.Field;
  * @param <M>
  * @param <U>
  */
-public class UnifiedModelInput<M, U> implements Serializable {
+public class UnifiedModelData<M, U> implements Serializable {
 	public boolean isModel = false;
 	public M model;
 
@@ -21,31 +21,31 @@ public class UnifiedModelInput<M, U> implements Serializable {
 	public boolean isConvergeSignal = false;
 	public ConvergeSignal convergeSignal;
 
-	public static <M, U> UnifiedModelInput<M, U> wrapModel(M model) {
-		UnifiedModelInput<M, U> in = new UnifiedModelInput<>();
+	public static <M, U> UnifiedModelData<M, U> wrapModel(M model) {
+		UnifiedModelData<M, U> in = new UnifiedModelData<>();
 		in.isModel = true;
 		in.model = model;
 		return in;
 	}
 
-	public static <M, U> UnifiedModelInput<M, U> wrapUpdate(U update) {
-		UnifiedModelInput<M, U> in = new UnifiedModelInput<>();
+	public static <M, U> UnifiedModelData<M, U> wrapUpdate(U update) {
+		UnifiedModelData<M, U> in = new UnifiedModelData<>();
 		in.isUpdate = true;
 		in.update = update;
 		return in;
 	}
 
-	public static <M, U> UnifiedModelInput<M, U> wrapConvergeSignal(ConvergeSignal convergeSignal) {
-		UnifiedModelInput<M, U> in = new UnifiedModelInput<>();
+	public static <M, U> UnifiedModelData<M, U> wrapConvergeSignal(ConvergeSignal convergeSignal) {
+		UnifiedModelData<M, U> in = new UnifiedModelData<>();
 		in.isConvergeSignal = true;
 		in.convergeSignal = convergeSignal;
 		return in;
 	}
 
-	public static <M, U> TypeInformation<UnifiedModelInput<M, U>> returnType(
+	public static <M, U> TypeInformation<UnifiedModelData<M, U>> returnType(
 		TypeInformation<M> modelType, TypeInformation<U> updateType) {
 		try {
-			PojoTypeInfo typeInfo = (PojoTypeInfo) PojoTypeInfo.of(UnifiedModelInput.class);
+			PojoTypeInfo typeInfo = (PojoTypeInfo) PojoTypeInfo.of(UnifiedModelData.class);
 			Field pojoTypeInfoFields = typeInfo.getClass().getDeclaredField("fields");
 			pojoTypeInfoFields.setAccessible(true);
 			PojoField[] fields = (PojoField[]) pojoTypeInfoFields.get(typeInfo);

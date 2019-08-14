@@ -5,11 +5,11 @@ import org.apache.flink.api.common.functions.MapFunction;
 /**
  *
  */
-public class UpdateWrapper<M, U> implements MapFunction<U, UnifiedModelInput<M, U>> {
+public class UpdateWrapper<M, U> implements MapFunction<U, UnifiedModelData<M, U>> {
 
 	@Override
-	public UnifiedModelInput<M, U> map(U update) throws Exception {
-		return UnifiedModelInput.wrapUpdate(update);
+	public UnifiedModelData<M, U> map(U update) throws Exception {
+		return UnifiedModelData.wrapUpdate(update);
 	}
 
 }

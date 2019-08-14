@@ -1,14 +1,12 @@
 package org.apache.flink.ds.iter.keyed;
 
-import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
-import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.ds.iter.PsMerger;
-import org.apache.flink.ds.iter.struct.UnifiedModelInput;
+import org.apache.flink.ds.iter.struct.UnifiedModelData;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
@@ -26,7 +24,7 @@ import java.util.Map;
  * @param <U>
  */
 public class KeyedPsCoProcessor<M, U> extends
-	KeyedCoProcessFunction<Integer, UnifiedModelInput<M, U>, Tuple2<Long, String>,
+	KeyedCoProcessFunction<Integer, UnifiedModelData<M, U>, Tuple2<Long, String>,
 		Tuple3<Long, String, M>> implements CheckpointedFunction {
 	private PsMerger<M, U> merger;
 	private KeySelector<M, String> modelKeySelector;
@@ -53,7 +51,7 @@ public class KeyedPsCoProcessor<M, U> extends
 	}
 
 	@Override
-	public void processElement1(UnifiedModelInput<M, U> value,
+	public void processElement1(UnifiedModelData<M, U> value,
 		Context ctx, Collector<Tuple3<Long, String, M>> out) throws Exception {
 		if (value.isModel) {
 			state.put(modelKeySelector.getKey(value.model), value.model);
@@ -68,11 +66,9 @@ public class KeyedPsCoProcessor<M, U> extends
 		} else {
 			//value.isConvergeSignal
 			//iterate on model and collect all kvs as side output
-			long version = value.convergeSignal.versionId;
+			String version = value.convergeSignal.versionId;
 			for (Map.Entry<String, M> e : state.entrySet()) {
-				ctx.output(new OutputTag<>("model", new TupleTypeInfo<>(
-						BasicTypeInfo.LONG_TYPE_INFO, modelType)),
-					new Tuple2<>(version, e.getValue()));
+				ctx.output(new OutputTag<>("model", modelType), e.getValue());
 			}
 			//maybe need to output a version signal?
 		}

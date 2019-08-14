@@ -1,14 +1,14 @@
 package org.apache.flink.ds.iter.keyed;
 
 import org.apache.flink.api.java.functions.KeySelector;
-import org.apache.flink.ds.iter.struct.UnifiedModelInput;
+import org.apache.flink.ds.iter.struct.UnifiedModelData;
 
 /**
  * @param <M>
  * @param <U>
  */
 public class UnifiedModelInputPartitionKeySelector<M, U> implements
-	KeySelector<UnifiedModelInput<M, U>, String> {
+	KeySelector<UnifiedModelData<M, U>, String> {
 	private final KeySelector<M, String> modelKeySelector;
 	private final KeySelector<U, String> updateKeySelector;
 
@@ -19,7 +19,7 @@ public class UnifiedModelInputPartitionKeySelector<M, U> implements
 	}
 
 	@Override
-	public String getKey(UnifiedModelInput<M, U> value) throws Exception {
+	public String getKey(UnifiedModelData<M, U> value) throws Exception {
 		if (value.isConvergeSignal) {
 			return String.valueOf(value.convergeSignal.targetWorker);
 		} else if (value.isModel) {

@@ -4,8 +4,8 @@ import java.io.Serializable;
 
 /**
  * @param <M>
- * @param <F>
+ * @param <U>
  */
-public interface PsMerger<M, F> extends Serializable {
-	M merge(M model, F feedback);
+public interface PsMerger<M, U> extends Serializable {
+	M merge(M model, U update);
 }

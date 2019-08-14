@@ -2,7 +2,7 @@ package org.apache.flink.ds.iter.iterate;
 
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.ds.iter.struct.UnifiedModelInput;
+import org.apache.flink.ds.iter.struct.UnifiedModelData;
 import org.apache.flink.util.Collector;
 
 import java.util.HashMap;
@@ -13,10 +13,10 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * @param <M>
- * @param <F>
+ * @param <U>
  */
-public class FeedbackHeadFlatMap<M, F>
-	extends RichFlatMapFunction<UnifiedModelInput<M, F>, UnifiedModelInput<M, F>> {
+public class FeedbackHeadFlatMap<M, U>
+	extends RichFlatMapFunction<UnifiedModelData<M, U>, UnifiedModelData<M, U>> {
 	public static Map<Integer, LinkedBlockingQueue> queueMap = new HashMap<>();
 	public static ThreadPoolExecutor executor = new ThreadPoolExecutor(3, 100, Long.MAX_VALUE,
 		TimeUnit.MINUTES, new LinkedBlockingQueue<>());
@@ -38,8 +38,8 @@ public class FeedbackHeadFlatMap<M, F>
 	}
 
 	@Override
-	public void flatMap(UnifiedModelInput<M, F> value,
-		Collector<UnifiedModelInput<M, F>> out) throws Exception {
+	public void flatMap(UnifiedModelData<M, U> value,
+		Collector<UnifiedModelData<M, U>> out) throws Exception {
 		if (!running) {
 			synchronized (lock) {
 				if (!running) {
@@ -57,9 +57,9 @@ public class FeedbackHeadFlatMap<M, F>
 	 */
 	//TODO not good
 	public class CollectThread extends Thread {
-		Collector<UnifiedModelInput<M, F>> out;
+		Collector<UnifiedModelData<M, U>> out;
 
-		public CollectThread(Collector<UnifiedModelInput<M, F>> out) {
+		public CollectThread(Collector<UnifiedModelData<M, U>> out) {
 			this.out = out;
 		}
 
@@ -67,7 +67,7 @@ public class FeedbackHeadFlatMap<M, F>
 		public void run() {
 			while (true) {
 				try {
-					out.collect((UnifiedModelInput<M, F>) getWorkerQueue(workerId).take());
+					out.collect((UnifiedModelData<M, U>) getWorkerQueue(workerId).take());
 				} catch (InterruptedException e) {
 					throw new RuntimeException(e);
 				}
